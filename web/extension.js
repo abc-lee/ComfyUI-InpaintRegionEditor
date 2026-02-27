@@ -74,16 +74,92 @@ const PhotopeaBridge = {
     },
 
     async exportLayerMask() {
-        var script = '(function(){var d=app.activeDocument;var l=d.activeLayer;if(!l.mask||!l.mask.enabled){app.echoToOE("NO_MASK");return;}var mc=null;for(var i=0;i<d.channels.length;i++){if(d.channels[i].name==="Mask"){mc=d.channels[i];break;}}if(!mc){app.echoToOE("NO_MASK");return;}d.activeChannels=[mc];d.selection.selectAll();d.selection.copy();var md=app.documents.add(d.width,d.height);md.paste();md.saveToOE("png");md.close(SaveOptions.DONOTSAVECHANGES);d.activeChannels=d.componentChannels;})();';
-        var result = await this.postMessage(script);
-        for (var i = 0; i < result.length; i++) {
-            if (result[i] === "NO_MASK") return null;
+        console.log("[DEBUG] 开始导出图层蒙版");
+        
+        // 步骤1: 检查是否有图层蒙版
+        console.log("[DEBUG] 步骤1: 检查图层蒙版...");
+        var checkResult = await this.postMessage('app.echoToOE(app.activeLayer.mask ? "HAS_MASK" : "NO_MASK");');
+        console.log("[DEBUG] 检查结果:", checkResult);
+        
+        var hasMask = false;
+        for (var i = 0; i < checkResult.length; i++) {
+            if (checkResult[i] === "HAS_MASK") { hasMask = true; break; }
+            if (checkResult[i] === "NO_MASK") { console.log("[DEBUG] 没有图层蒙版"); return null; }
         }
+        console.log("[DEBUG] 有图层蒙版:", hasMask);
+        if (!hasMask) { console.log("[DEBUG] 未检测到蒙版"); return null; }
+        
+        // 步骤2: 检查蒙版是否启用
+        console.log("[DEBUG] 步骤2: 检查蒙版是否启用...");
+        var enabledResult = await this.postMessage('app.echoToOE(app.activeLayer.mask.enabled ? "ENABLED" : "DISABLED");');
+        console.log("[DEBUG] 启用状态:", enabledResult);
+        
+        // 步骤3: 获取蒙版通道名称
+        console.log("[DEBUG] 步骤3: 获取通道列表...");
+        var channelsResult = await this.postMessage('app.echoToOE(JSON.stringify(app.activeDocument.channels.map(function(c){return c.name;})));');
+        console.log("[DEBUG] 通道列表:", channelsResult);
+        
+        // 步骤4: 尝试简单的蒙版导出
+        console.log("[DEBUG] 步骤4: 尝试导出蒙版...");
+        
+        var script = [
+            '(function(){',
+            '  try {',
+            '    var d = app.activeDocument;',
+            '    var l = d.activeLayer;',
+            '    ',
+            '    if (!l.mask) { app.echoToOE("ERR_NO_MASK_OBJ"); return; }',
+            '    if (!l.mask.enabled) { app.echoToOE("ERR_MASK_DISABLED"); return; }',
+            '    ',
+            '    // 选择蒙版通道',
+            '    d.activeChannels = [d.channels.getByName("Mask")];',
+            '    ',
+            '    // 全选复制',
+            '    d.selection.selectAll();',
+            '    d.selection.copy();',
+            '    ',
+            '    // 恢复 RGB 通道',
+            '    d.activeChannels = d.componentChannels;',
+            '    ',
+            '    // 创建新文档',
+            '    var newDoc = app.documents.add(d.width, d.height);',
+            '    newDoc.paste();',
+            '    newDoc.saveToOE("png");',
+            '    newDoc.close(SaveOptions.DONOTSAVECHANGES);',
+            '    ',
+            '    app.echoToOE("MASK_EXPORTED");',
+            '  } catch(e) {',
+            '    app.echoToOE("ERR_" + e.message);',
+            '  }',
+            '})();'
+        ].join('\n');
+        
+        console.log("[DEBUG] 执行脚本...");
+        var result = await this.postMessage(script);
+        console.log("[DEBUG] 脚本结果:", result);
+        
+        // 检查错误
+        for (var i = 0; i < result.length; i++) {
+            if (typeof result[i] === "string") {
+                if (result[i].indexOf("ERR_") === 0) {
+                    console.log("[DEBUG] 脚本错误:", result[i]);
+                    return null;
+                }
+                if (result[i] === "MASK_EXPORTED") {
+                    console.log("[DEBUG] 蒙版导出成功");
+                }
+            }
+        }
+        
+        // 查找 ArrayBuffer
         for (var i = 0; i < result.length; i++) {
             if (result[i] instanceof ArrayBuffer) {
+                console.log("[DEBUG] 找到图像数据，大小:", result[i].byteLength);
                 return new Blob([result[i]], { type: "image/png" });
             }
         }
+        
+        console.log("[DEBUG] 未找到图像数据");
         return null;
     }
 };
@@ -156,10 +232,14 @@ const PhotopeaModal = {
     async saveAll() {
         if (!this.isOpen) return;
         try {
+            console.log("[SAVE] 开始保存...");
             this.setStatus("导出图像...");
             var imageBlob = await PhotopeaBridge.exportImage();
-            this.setStatus("导出蒙版...");
+            console.log("[SAVE] 图像大小:", imageBlob.size);
+            this.setStatus("检查蒙版...");
+            console.log("[SAVE] 检查蒙版...");
             var maskBlob = await PhotopeaBridge.exportLayerMask();
+            console.log("[SAVE] 蒙版结果:", maskBlob ? maskBlob.size : "无");
             this.setStatus("上传...");
             var imgResult = await this.upload(imageBlob, "edited.png");
             if (imgResult.name) { var w = this.node.widgets && this.node.widgets.find(function(x) { return x.name === "image"; }); if (w) w.value = imgResult.name; }
@@ -171,7 +251,7 @@ const PhotopeaModal = {
             this.setStatus(maskBlob ? "已保存（含蒙版）" : "已保存（无蒙版）");
             var self = this;
             setTimeout(function() { self.close(); }, 500);
-        } catch (e) { console.error(e); this.setStatus("失败: " + e.message); alert("保存失败: " + e.message); }
+        } catch (e) { console.error("[SAVE] 错误:", e); this.setStatus("失败: " + e.message); alert("保存失败: " + e.message); }
     },
 
     async upload(blob, name) {
