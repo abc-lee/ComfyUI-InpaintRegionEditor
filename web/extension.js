@@ -80,17 +80,15 @@ const PhotopeaBridge = {
         throw new Error("导出图像失败");
     },
 
-    async exportLayerMask() {
-        // 检查是否有图层蒙版
-        var script = '(function(){var d=app.activeDocument;var l=d.activeLayer;if(!l.mask||!l.mask.enabled){app.echoToOE("NO_MASK");return;}var t=d.artLayers.add();d.activeChannels=[d.channels.getByName("Mask")];d.selection.selectAll();d.selection.copy();d.activeChannels=d.componentChannels;d.activeLayer=t;d.paste();l.visible=false;d.saveToOE("png");t.remove();l.visible=true;d.activeLayer=l;})();';
+    async exportMaskOrSelection() {
+        // 方法1: 尝试从选区创建蒙版
+        var script = '(function(){var d=app.activeDocument;if(d.selection.bounds){var t=d.artLayers.add();d.selection.invert();d.selection.fill({r:0,g:0,b:0});d.selection.invert();d.selection.fill({r:255,g:255,b:255});d.saveToOE("png");t.remove();return;}app.echoToOE("NO_SELECTION");})();';
         
         var result = await this.postMessage(script);
         
+        // 检查结果
         for (var i = 0; i < result.length; i++) {
-            if (result[i] === "NO_MASK") return null;
-        }
-        
-        for (var i = 0; i < result.length; i++) {
+            if (result[i] === "NO_SELECTION") return null;
             if (result[i] instanceof ArrayBuffer) {
                 return new Blob([result[i]], { type: "image/png" });
             }
@@ -121,7 +119,7 @@ const PhotopeaModal = {
             '<div class="photopea-container">' +
             '  <iframe id="pp-iframe" src="https://www.photopea.com/"></iframe>' +
             '  <div class="pp-toolbar">' +
-            '    <div class="pp-left"><span class="pp-hint">编辑图像，用图层蒙版绘制重绘区域，然后保存</span></div>' +
+            '    <div class="pp-left"><span class="pp-hint">用选区工具(M)绘制重绘区域，然后保存</span></div>' +
             '    <div class="pp-right">' +
             '      <button id="pp-save" class="pp-btn pp-save">保存图像和蒙版</button>' +
             '      <button id="pp-cancel" class="pp-btn pp-cancel">取消</button>' +
@@ -182,8 +180,7 @@ const PhotopeaModal = {
             if (!resp.ok) { this.setStatus("加载失败"); return; }
             
             await PhotopeaBridge.openImage(await resp.blob());
-            this.setStatus("图像已加载。使用 图层>图层蒙版 绘制蒙版，然后保存");
-        } catch (e) {
+            this.setStatus("图像已加载。用选区工具(M)绘制重绘区域，然后保存");
             this.setStatus("加载失败: " + e.message);
         }
     },
@@ -195,9 +192,9 @@ const PhotopeaModal = {
             this.setStatus("正在导出图像...");
             var imageBlob = await PhotopeaBridge.exportImage();
             
-            this.setStatus("正在检查蒙版...");
+            this.setStatus("正在导出蒙版...");
             var maskBlob = null;
-            try { maskBlob = await PhotopeaBridge.exportLayerMask(); } catch (e) {}
+            try { maskBlob = await PhotopeaBridge.exportMaskOrSelection(); } catch (e) {}
             
             this.setStatus("正在上传...");
             
