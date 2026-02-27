@@ -1,10 +1,7 @@
 /**
  * InpaintRegionEditor Extension
  * 
- * 流程：
- * 1. 打开：图像 + 蒙版 -> Photopea
- * 2. 编辑：用户编辑图像和蒙版
- * 3. 保存：图像 + 蒙版 -> ComfyUI
+ * 流程：图像 + 蒙版 <-> Photopea
  */
 
 import { app } from "../../scripts/app.js";
@@ -22,67 +19,141 @@ const PhotopeaBridge = {
     },
 
     async postMessage(message) {
-        return new Promise((resolve, reject) => {
-            if (!this.photopeaWindow) {
+        var self = this;
+        return new Promise(function(resolve, reject) {
+            if (!self.photopeaWindow) {
                 reject(new Error("Photopea 未初始化"));
                 return;
             }
-            const responses = [];
-            let timeoutId = null;
-            const handler = (event) => {
-                if (event.origin !== this.PHOTOPEA_ORIGIN) return;
+            var responses = [];
+            var timeoutId = null;
+            var resolved = false;
+            
+            var handler = function(event) {
+                if (event.origin !== self.PHOTOPEA_ORIGIN) return;
                 responses.push(event.data);
-                if (event.data === "done") {
+                if (event.data === "done" && !resolved) {
+                    resolved = true;
                     if (timeoutId) clearTimeout(timeoutId);
                     window.removeEventListener("message", handler);
                     resolve(responses);
                 }
             };
+            
             window.addEventListener("message", handler);
-            this.photopeaWindow.postMessage(message, "*");
-            timeoutId = setTimeout(() => {
-                window.removeEventListener("message", handler);
-                reject(new Error("超时"));
-            }, 120000);
+            self.photopeaWindow.postMessage(message, "*");
+            
+            timeoutId = setTimeout(function() {
+                if (!resolved) {
+                    resolved = true;
+                    window.removeEventListener("message", handler);
+                    reject(new Error("操作超时"));
+                }
+            }, 60000);
         });
     },
 
-    async openImageWithMask(imageBlob, maskBlob) {
-        const imageBase64 = await this.blobToBase64(imageBlob);
-        await this.postMessage('app.open("' + imageBase64 + '", null, false);');
-        
-        if (maskBlob) {
-            const maskBase64 = await this.blobToBase64(maskBlob);
-            await this.postMessage('app.open("' + maskBase64 + '", null, true);');
-            var script = '(function(){var d=app.activeDocument;if(d.layers.length<2)return;var m=d.activeLayer;var i=d.layers[d.layers.length-1];d.activeLayer=m;var b=m.bounds;if(b){d.selection.select([[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]]);d.selection.copy();d.activeLayer=i;i.addMask();d.activeChannels=[d.channels.getByName("Mask")];d.selection.selectAll();d.paste();m.remove();d.activeChannels=d.componentChannels;}})();';
-            await this.postMessage(script);
-        }
-        await this.postMessage('app.activeDocument.activeLayer.rasterize();');
-        console.log("[PhotopeaBridge] Image opened");
+    async openImage(imageBlob) {
+        var reader = new FileReader();
+        var self = this;
+        return new Promise(function(resolve, reject) {
+            reader.onloadend = async function() {
+                try {
+                    await self.postMessage('app.open("' + reader.result + '", null, false);');
+                    await self.postMessage('app.activeDocument.activeLayer.rasterize();');
+                    console.log("[PhotopeaBridge] Image opened");
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(imageBlob);
+        });
+    },
+
+    async openMaskAsLayer(maskBlob) {
+        var reader = new FileReader();
+        var self = this;
+        return new Promise(function(resolve, reject) {
+            reader.onloadend = async function() {
+                try {
+                    await self.postMessage('app.open("' + reader.result + '", null, true);');
+                    console.log("[PhotopeaBridge] Mask opened as layer");
+                    resolve();
+                } catch (e) {
+                    reject(e);
+                }
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(maskBlob);
+        });
     },
 
     async exportImage() {
+        console.log("[PhotopeaBridge] Exporting image...");
         var result = await this.postMessage('app.activeDocument.saveToOE("png");');
-        var arrayBuffer = result.find(r => r instanceof ArrayBuffer);
-        if (!arrayBuffer) throw new Error("导出图像失败");
-        return new Blob([arrayBuffer], { type: "image/png" });
+        
+        for (var i = 0; i < result.length; i++) {
+            if (result[i] instanceof ArrayBuffer) {
+                console.log("[PhotopeaBridge] Image exported, size:", result[i].byteLength);
+                return new Blob([result[i]], { type: "image/png" });
+            }
+        }
+        throw new Error("导出图像失败：未收到图像数据");
     },
 
-    async exportMask() {
-        var script = '(function(){var d=app.activeDocument;var l=d.activeLayer;if(!l.mask||!l.mask.enabled){app.echoToOE("NO_MASK");return;}var t=d.artLayers.add();t.name="__temp__";var mc=d.channels.getByName("Mask");d.activeChannels=[mc];d.selection.selectAll();d.selection.copy();d.activeChannels=d.componentChannels;d.activeLayer=t;d.selection.selectAll();d.paste();l.visible=false;d.saveToOE("png");t.remove();l.visible=true;d.activeLayer=l;})();';
-        var result = await this.postMessage(script);
-        if (result.indexOf("NO_MASK") >= 0) return null;
-        var arrayBuffer = result.find(r => r instanceof ArrayBuffer);
-        return arrayBuffer ? new Blob([arrayBuffer], { type: "image/png" }) : null;
-    },
-
-    blobToBase64(blob) {
-        return new Promise((resolve, reject) => {
-            var reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-        });
+    async exportMaskFromSelection() {
+        console.log("[PhotopeaBridge] Creating mask from selection...");
+        
+        // 先检查是否有选区
+        var checkScript = '(function(){if(app.activeDocument.selection.bounds){return "HAS_SELECTION";}return "NO_SELECTION";})();';
+        var checkResult = await this.postMessage('app.echoToOE(' + checkScript + ');');
+        
+        var hasSelection = false;
+        for (var i = 0; i < checkResult.length; i++) {
+            if (checkResult[i] === "HAS_SELECTION") {
+                hasSelection = true;
+                break;
+            }
+            if (checkResult[i] === "NO_SELECTION") {
+                hasSelection = false;
+                break;
+            }
+        }
+        
+        if (!hasSelection) {
+            console.log("[PhotopeaBridge] No selection found");
+            return null;
+        }
+        
+        // 从选区创建蒙版
+        var createMaskScript = '(function(){var d=app.activeDocument;d.selection.invert();d.selection.fill({r:0,g:0,b:0});d.selection.invert();d.selection.fill({r:255,g:255,b:255});d.saveToOE("png");d.undo();d.undo();})();';
+        
+        // 更简单的方法：创建新文档
+        var simpleScript = '(function(){var d=app.activeDocument;var b=d.selection.bounds;var w=b[2]-b[0];var h=b[3]-b[1];var nd=app.documents.add(w,h);d.activeDocument=nd;nd.selection.selectAll();nd.selection.fill({r:255,g:255,b:255});d.activeDocument=d;nd.close(SaveOptions.DONOTSAVECHANGES);})();';
+        
+        // 最简单：导出选区内容
+        var exportSelectionScript = '(function(){var d=app.activeDocument;if(!d.selection.bounds){app.echoToOE("NO_SELECTION");return;}var tempLayer=d.artLayers.add();tempLayer.name="__mask_temp__";d.selection.invert();d.selection.fill({r:0,g:0,b:0});d.selection.invert();d.selection.fill({r:255,g:255,b:255});d.saveToOE("png");tempLayer.remove();})();';
+        
+        var result = await this.postMessage(exportSelectionScript);
+        
+        // 检查是否有 NO_SELECTION
+        for (var i = 0; i < result.length; i++) {
+            if (result[i] === "NO_SELECTION") {
+                console.log("[PhotopeaBridge] No selection");
+                return null;
+            }
+        }
+        
+        for (var i = 0; i < result.length; i++) {
+            if (result[i] instanceof ArrayBuffer) {
+                console.log("[PhotopeaBridge] Mask exported, size:", result[i].byteLength);
+                return new Blob([result[i]], { type: "image/png" });
+            }
+        }
+        
+        return null;
     }
 };
 
@@ -91,28 +162,46 @@ const PhotopeaModal = {
     node: null,
     imagePath: null,
     maskPath: null,
+    isOpen: false,
 
     show(node, imagePath, maskPath) {
         this.node = node;
         this.imagePath = imagePath;
         this.maskPath = maskPath;
+        this.isOpen = true;
         this.createUI();
     },
 
     createUI() {
+        var self = this;
         this.modal && this.modal.remove();
+
         this.modal = document.createElement("div");
         this.modal.className = "photopea-modal";
-        this.modal.innerHTML = "<div class='photopea-container'><iframe id='photopea-iframe' src='https://www.photopea.com/'></iframe><div class='photopea-toolbar'><div class='toolbar-left'><span class='toolbar-hint'>编辑图像和蒙版后，点击保存</span></div><div class='toolbar-right'><button id='btn-save' class='btn btn-success'>保存图像和蒙版</button><button id='btn-cancel' class='btn btn-secondary'>取消</button></div></div><div class='photopea-statusbar'><span id='status-text'>正在加载 Photopea...</span></div></div>";
+        this.modal.innerHTML = 
+            '<div class="photopea-container">' +
+            '  <iframe id="photopea-iframe" src="https://www.photopea.com/"></iframe>' +
+            '  <div class="photopea-toolbar">' +
+            '    <div class="toolbar-left"><span class="toolbar-hint">在 Photopea 中编辑图像，用选区工具创建蒙版区域，然后保存</span></div>' +
+            '    <div class="toolbar-right">' +
+            '      <button id="btn-save-image" class="btn btn-success">保存图像</button>' +
+            '      <button id="btn-save-mask" class="btn btn-primary">从选区保存蒙版</button>' +
+            '      <button id="btn-cancel" class="btn btn-secondary">取消</button>' +
+            '    </div>' +
+            '  </div>' +
+            '  <div class="photopea-statusbar"><span id="status-text">正在加载 Photopea...</span></div>' +
+            '</div>';
+
         this.injectStyles();
         document.body.appendChild(this.modal);
+
         var iframe = document.getElementById("photopea-iframe");
-        var self = this;
-        iframe.onload = async () => {
+        iframe.onload = async function() {
+            if (!self.isOpen) return;
             PhotopeaBridge.init(iframe);
-            document.getElementById("status-text").textContent = "正在加载图像...";
+            self.setStatus("正在加载图像...");
             self.setupEventListeners();
-            await self.loadImageAndMask();
+            await self.loadImage();
         };
     },
 
@@ -120,81 +209,147 @@ const PhotopeaModal = {
         if (document.getElementById("photopea-modal-styles")) return;
         var style = document.createElement("style");
         style.id = "photopea-modal-styles";
-        style.textContent = ".photopea-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center}.photopea-container{width:95%;height:95%;display:flex;flex-direction:column;background:#1e1e1e;border-radius:8px;overflow:hidden}#photopea-iframe{flex:1;width:100%;border:none}.photopea-toolbar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#2d2d2d;border-top:1px solid #444;gap:10px}.toolbar-left{display:flex;align-items:center;gap:15px}.toolbar-right{display:flex;align-items:center;gap:10px}.toolbar-hint{color:#999;font-size:13px}.btn{padding:10px 18px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500}.btn:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,0.3)}.btn-success{background:linear-gradient(135deg,#107c10,#0b5c0b);color:#fff}.btn-secondary{background:#555;color:#fff}.photopea-statusbar{padding:8px 16px;background:#1a1a1a;color:#888;font-size:12px}";
+        style.textContent = ".photopea-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center}.photopea-container{width:95%;height:95%;display:flex;flex-direction:column;background:#1e1e1e;border-radius:8px;overflow:hidden}#photopea-iframe{flex:1;width:100%;border:none}.photopea-toolbar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#2d2d2d;border-top:1px solid #444;gap:10px;flex-wrap:wrap}.toolbar-left{display:flex;align-items:center;gap:15px}.toolbar-right{display:flex;align-items:center;gap:10px}.toolbar-hint{color:#999;font-size:13px}.btn{padding:10px 18px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:500}.btn:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(0,0,0,0.3)}.btn-success{background:linear-gradient(135deg,#107c10,#0b5c0b);color:#fff}.btn-primary{background:linear-gradient(135deg,#0078d4,#106ebe);color:#fff}.btn-secondary{background:#555;color:#fff}.photopea-statusbar{padding:8px 16px;background:#1a1a1a;color:#888;font-size:12px}";
         document.head.appendChild(style);
+    },
+
+    setStatus(text) {
+        if (!this.isOpen || !this.modal) return;
+        var el = document.getElementById("status-text");
+        if (el) el.textContent = text;
     },
 
     setupEventListeners() {
         var self = this;
-        document.getElementById("btn-save").addEventListener("click", async () => { await self.saveAll(); });
-        document.getElementById("btn-cancel").addEventListener("click", () => { self.close(); });
-        this.escHandler = (e) => { if (e.key === "Escape") self.close(); };
+        
+        document.getElementById("btn-save-image").addEventListener("click", async function() {
+            await self.saveImage();
+        });
+        
+        document.getElementById("btn-save-mask").addEventListener("click", async function() {
+            await self.saveMask();
+        });
+        
+        document.getElementById("btn-cancel").addEventListener("click", function() {
+            self.close();
+        });
+        
+        this.escHandler = function(e) {
+            if (e.key === "Escape") self.close();
+        };
         document.addEventListener("keydown", this.escHandler);
     },
 
     parsePath(path) {
-        var filename = path, subfolder = "", type = "input";
-        var m = path.match(/^(.+?)\s*\[(\w+)\]$/);
-        if (m) { filename = m[1].trim(); type = m[2]; }
+        var filename = path || "";
+        var subfolder = "";
+        var type = "input";
+        
+        if (!filename) return { filename: "", subfolder: "", type: "input" };
+        
+        var m = filename.match(/^(.+?)\s*\[(\w+)\]$/);
+        if (m) {
+            filename = m[1].trim();
+            type = m[2];
+        }
         var lastSlash = filename.lastIndexOf("/");
-        if (lastSlash !== -1) { subfolder = filename.substring(0, lastSlash); filename = filename.substring(lastSlash + 1); }
-        return { filename, subfolder, type };
+        if (lastSlash !== -1) {
+            subfolder = filename.substring(0, lastSlash);
+            filename = filename.substring(lastSlash + 1);
+        }
+        return { filename: filename, subfolder: subfolder, type: type };
     },
 
-    async loadImageAndMask() {
+    async loadImage() {
+        var self = this;
         try {
             var p = this.parsePath(this.imagePath);
+            if (!p.filename) {
+                this.setStatus("没有图像");
+                return;
+            }
+            
             var url = "/view?filename=" + encodeURIComponent(p.filename) + "&type=" + p.type;
             if (p.subfolder) url += "&subfolder=" + encodeURIComponent(p.subfolder);
+            
             console.log("[InpaintRegionEditor] Loading image:", url);
+            
             var resp = await fetch(url);
-            if (!resp.ok) throw new Error("加载失败: " + resp.status);
-            var imageBlob = await resp.blob();
-
-            var maskBlob = null;
-            if (this.maskPath) {
-                try {
-                    var mp = this.parsePath(this.maskPath);
-                    var murl = "/view?filename=" + encodeURIComponent(mp.filename) + "&type=" + mp.type;
-                    if (mp.subfolder) murl += "&subfolder=" + encodeURIComponent(mp.subfolder);
-                    var mresp = await fetch(murl);
-                    if (mresp.ok) maskBlob = await mresp.blob();
-                } catch (e) { console.log("[InpaintRegionEditor] No mask"); }
+            if (!resp.ok) {
+                this.setStatus("加载失败: " + resp.status);
+                return;
             }
-
-            await PhotopeaBridge.openImageWithMask(imageBlob, maskBlob);
-            document.getElementById("status-text").textContent = maskBlob ? "图像和蒙版已加载" : "图像已加载";
+            
+            var imageBlob = await resp.blob();
+            await PhotopeaBridge.openImage(imageBlob);
+            
+            this.setStatus("图像已加载。用选区工具(M)创建蒙版区域，然后点击'从选区保存蒙版'");
+            
         } catch (e) {
             console.error("[InpaintRegionEditor] Load error:", e);
-            document.getElementById("status-text").textContent = "加载失败: " + e.message;
+            this.setStatus("加载失败: " + e.message);
         }
     },
 
-    async saveAll() {
+    async saveImage() {
+        var self = this;
+        if (!this.isOpen) return;
+        
         try {
-            document.getElementById("status-text").textContent = "正在导出...";
+            this.setStatus("正在导出图像...");
+            
             var imageBlob = await PhotopeaBridge.exportImage();
-            var maskBlob = null;
-            try { maskBlob = await PhotopeaBridge.exportMask(); } catch (e) {}
-
-            document.getElementById("status-text").textContent = "正在上传...";
-            var imageResult = await this.uploadToComfyUI(imageBlob, "edited.png");
-
-            var imageWidget = this.node.widgets && this.node.widgets.find(w => w.name === "image");
-            if (imageWidget && imageResult.name) imageWidget.value = imageResult.name;
-
-            if (maskBlob) {
-                var maskResult = await this.uploadToComfyUI(maskBlob, "mask.png");
-                var maskPathWidget = this.node.widgets && this.node.widgets.find(w => w.name === "mask_path");
-                if (maskPathWidget && maskResult.name) maskPathWidget.value = maskResult.name;
+            
+            this.setStatus("正在上传图像...");
+            
+            var result = await this.uploadToComfyUI(imageBlob, "edited.png");
+            
+            if (result.name) {
+                var imageWidget = this.node.widgets && this.node.widgets.find(function(w) { return w.name === "image"; });
+                if (imageWidget) imageWidget.value = result.name;
             }
-
+            
             this.node.setDirtyCanvas(true);
-            document.getElementById("status-text").textContent = "已保存";
-            setTimeout(() => this.close(), 500);
+            this.setStatus("图像已保存");
+            
         } catch (e) {
-            console.error("[InpaintRegionEditor] Save error:", e);
-            alert("保存失败: " + e.message);
+            console.error("[InpaintRegionEditor] Save image error:", e);
+            this.setStatus("保存失败: " + e.message);
+            alert("保存图像失败: " + e.message);
+        }
+    },
+
+    async saveMask() {
+        var self = this;
+        if (!this.isOpen) return;
+        
+        try {
+            this.setStatus("正在从选区创建蒙版...");
+            
+            var maskBlob = await PhotopeaBridge.exportMaskFromSelection();
+            
+            if (!maskBlob) {
+                this.setStatus("没有选区，请先用选区工具(M)绘制区域");
+                alert("请先用选区工具（快捷键 M）绘制要重绘的区域，然后再保存蒙版");
+                return;
+            }
+            
+            this.setStatus("正在上传蒙版...");
+            
+            var result = await this.uploadToComfyUI(maskBlob, "mask.png");
+            
+            if (result.name) {
+                var maskPathWidget = this.node.widgets && this.node.widgets.find(function(w) { return w.name === "mask_path"; });
+                if (maskPathWidget) maskPathWidget.value = result.name;
+            }
+            
+            this.node.setDirtyCanvas(true);
+            this.setStatus("蒙版已保存");
+            
+        } catch (e) {
+            console.error("[InpaintRegionEditor] Save mask error:", e);
+            this.setStatus("保存失败: " + e.message);
+            alert("保存蒙版失败: " + e.message);
         }
     },
 
@@ -207,27 +362,37 @@ const PhotopeaModal = {
     },
 
     close() {
-        if (this.escHandler) { document.removeEventListener("keydown", this.escHandler); this.escHandler = null; }
-        this.modal && this.modal.remove();
-        this.modal = null;
+        this.isOpen = false;
+        if (this.escHandler) {
+            document.removeEventListener("keydown", this.escHandler);
+            this.escHandler = null;
+        }
+        if (this.modal) {
+            this.modal.remove();
+            this.modal = null;
+        }
         this.node = null;
     }
 };
 
 app.registerExtension({
     name: "comfyui.inpaint_region_editor",
+    
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
         if (nodeData.name !== "InpaintRegionEditor") return;
+        
         var getExtraMenuOptions = nodeType.prototype.getExtraMenuOptions;
         nodeType.prototype.getExtraMenuOptions = function(canvas, options) {
             getExtraMenuOptions && getExtraMenuOptions.apply(this, arguments);
+            
             var node = this;
             options.push(null);
             options.push({
                 content: "Open in Photopea",
-                callback: () => {
-                    var imageWidget = node.widgets && node.widgets.find(w => w.name === "image");
-                    var maskPathWidget = node.widgets && node.widgets.find(w => w.name === "mask_path");
+                callback: function() {
+                    var imageWidget = node.widgets && node.widgets.find(function(w) { return w.name === "image"; });
+                    var maskPathWidget = node.widgets && node.widgets.find(function(w) { return w.name === "mask_path"; });
+                    
                     if (imageWidget && imageWidget.value) {
                         PhotopeaModal.show(node, imageWidget.value, maskPathWidget ? maskPathWidget.value : null);
                     } else {
@@ -237,11 +402,12 @@ app.registerExtension({
             });
             return options;
         };
+        
         var onNodeCreated = nodeType.prototype.onNodeCreated;
         nodeType.prototype.onNodeCreated = function() {
             var result = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
-            this.addWidget("STRING", "mask_path", "", () => {}, { serialize: true });
-            this.addWidget("STRING", "mask_bounds", "{}", () => {}, { serialize: true });
+            this.addWidget("STRING", "mask_path", "", function() {}, { serialize: true });
+            this.addWidget("STRING", "mask_bounds", "{}", function() {}, { serialize: true });
             return result;
         };
     }
