@@ -1,84 +1,83 @@
-# ComfyUI InpaintRegionEditor
+# ComfyUI Inpaint Region Editor
 
-增强版遮罩编辑器，支持 Photopea 集成和可配置重绘区域。
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![ComfyUI](https://img.shields.io/badge/ComfyUI-Custom%20Node-blue.svg)](https://github.com/comfyanonymous/ComfyUI)
 
-## 功能特性
+A ComfyUI custom node that integrates [Photopea](https://www.photopea.com/) (a free online Photoshop alternative) for advanced inpaint editing with mask support.
 
-- 🎨 **Photopea 集成**：完整 Photoshop 功能（液化、仿制图章、滤镜等）
-- 📐 **可配置选区**：预设尺寸（512×512 SD、1024×1024 SDXL 等）+ 自定义
-- 🎯 **自动定位**：选区自动居中于遮罩
-- ✅ **约束验证**：选区必须包含遮罩
+## Features
 
-## 概念说明
+- 🎨 **Full Photopea Integration** - Complete Photoshop-like editing capabilities
+- 📐 **Region Presets** - Pre-configured sizes for SD (512×512), SDXL (1024×1024)
+- 🔄 **Bidirectional Sync** - Loads and saves both images and masks
+- 🎭 **Layer Mask Support** - Masks are loaded as Photopea layer masks
 
-| 概念 | 目的 | 作用 |
-|------|------|------|
-| **遮罩 (Mask)** | 定义重绘区域 | 重绘完成后只在遮罩内合成新内容 |
-| **选区 (Region)** | 定义参考区域 | 大模型重绘时参考这个区域内的原图内容 |
+## Installation
 
-**关键约束**：选区必须 ≥ 遮罩（选区必须完全包含遮罩）
+### Method 1: ComfyUI Manager (Recommended)
+Search for "Inpaint Region Editor" in ComfyUI Manager.
 
-## 安装
-
+### Method 2: Manual Installation
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/yourname/ComfyUI-InpaintRegionEditor.git
+git clone https://github.com/YOUR_USERNAME/ComfyUI-InpaintRegionEditor.git
 ```
 
-## 使用方法
+Restart ComfyUI.
 
-1. 添加 "Inpaint Region Editor" 节点
-2. 上传图像
-3. 右键点击节点 → "🎨 Open in Photopea"
-4. 在 Photopea 中：
-   - 编辑图像（液化、仿制图章等）- 可选
-   - 使用选区工具绘制遮罩（要重绘的区域）
-5. 点击 "📐 从选区获取遮罩" → 点击 "💾 保存到节点"
-6. 选择选区尺寸（预设或自定义）
-7. 执行工作流
+## Usage
 
-## 节点输出
+1. Add the **Inpaint Region Editor** node
+2. Upload an image
+3. Right-click the node → **"Open in Photopea"**
+4. Edit your image and create/edit the mask
+5. Click **"Save Image and Mask"**
 
-| 输出 | 类型 | 说明 |
-|------|------|------|
-| `image` | IMAGE | 编辑后的图像 |
-| `mask` | MASK | 遮罩（重绘区域） |
-| `region_top` | INT | 选区上边距 |
-| `region_left` | INT | 选区左边距 |
-| `region_width` | INT | 选区宽度 |
-| `region_height` | INT | 选区高度 |
+## Node Outputs
 
-## 工作原理
+| Output | Type | Description |
+|--------|------|-------------|
+| `image` | IMAGE | Edited image |
+| `mask` | MASK | Inpaint mask |
+| `region_top` | INT | Region top coordinate |
+| `region_left` | INT | Region left coordinate |
+| `region_width` | INT | Region width |
+| `region_height` | INT | Region height |
 
-```
-1. 大模型参考选区内的原图内容
-2. 重绘整个选区区域
-3. 根据遮罩合成：只在遮罩内放入新内容
+## Concept: Mask vs Region
 
-结果：选区越大 → 参考信息越多 → 重绘越准确
-```
+| Concept | Purpose |
+|---------|---------|
+| **Mask** | Define inpaint area (what to repaint) |
+| **Region** | Define reference area (AI context) |
 
-## 注意事项
+**Constraint**: Region size must be ≥ mask size.
 
-- **网络依赖**：首次打开 Photopea 需要联网（约 10MB）
-- **浏览器缓存**：缓存后可离线使用
-- **隐私**：图像处理在本地完成，不上传到服务器
+## Technical Details
 
-## 图像编辑功能说明
+- Uses Photopea [postMessage API](https://www.photopea.com/api/)
+- All message origins are verified for security
+- Images processed locally in browser
 
-本节点的图像编辑功能基于 [Photopea](https://www.photopea.com/)，一个免费的在线图像编辑器。
+## Limitations
 
-- Photopea 是由 Ivan Kutskir 开发的免费软件
-- 图像处理在您的浏览器本地完成，不上传到任何服务器
-- 使用 Photopea API 是免费的，但会显示广告
-- 您编辑的所有图像归您所有
+- Requires internet (Photopea loaded from CDN)
+- First load ~10MB, then cached
 
-## 法律声明
+## Acknowledgments
 
-- Photopea API 可免费用于任何目的（包括商业用途）
-- 您的作品完全归您所有，无需分享收益
-- 无需标注使用了 Photopea（但建议标注）
+- [Photopea](https://www.photopea.com/) by Ivan Kutskir
+- [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
 
-## 许可证
+## License
 
-本项目采用 MIT 许可证。
+MIT License - see [LICENSE](LICENSE) file.
+
+### Photopea Usage
+- Free API for any purpose (including commercial)
+- Your work belongs entirely to you
+- No attribution required (but appreciated)
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for details.
