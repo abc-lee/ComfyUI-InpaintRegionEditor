@@ -5,26 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-03-02
 
 ### Added
-- Initial implementation of InpaintRegionEditor node
-- Photopea iframe integration for image editing
-- Right-click menu "Open in Photopea" on node
-- Load image + mask to Photopea (mask as layer mask)
-- Export image + mask from Photopea
-- Region size presets (512×512, 1024×1024, etc.)
-- PostMessage API with origin verification for security
+- **后端重构**：`padding` 参数替代 `region_size` 预设
+- **蒙版错误处理**：无 Alpha 通道时抛出友好错误提示
+- **选区坐标同步**：`region_coords` hidden widget 支持前端拖动
+- **选区框 Canvas UI**：在节点上绘制遮罩（红色）+ 选区框（橙色虚线）
+- **拖动交互**：支持鼠标拖动选区位置
+- **Photopea 集成**：右键菜单 → 打开 Photopea 编辑
+- **图像加载**：使用 `&channel=rgb` 获取纯 RGB 图像
+- **图像导出**：PNG 格式导出并上传到 ComfyUI
+
+### Changed
+- 参数设计：`region_size/width/height` → `padding`（扩散像素数）
+- 选区计算：固定尺寸 → 遮罩边界 + padding
+- 错误处理：返回空蒙版 → 抛出 ValueError
 
 ### Technical Details
-- Backend: Python node with image upload and region presets
-- Frontend: Photopea iframe with postMessage communication
-- Security: Origin-verified messages (only from photopea.com)
+- **后端**：`nodes.py` - 蒙版提取 + 选区计算 + 坐标同步
+- **前端**：`region-box-editor.js` - Canvas 绘制 + 拖动交互
+- **前端**：`extension.js` - Photopea postMessage API
+- **安全**：Origin 验证（仅接受 photopea.com 消息）
 
 ### Known Issues
-- Layer mask export script needs real-world testing
-- Large images may have performance issues
-- First Photopea load requires internet (~10MB)
+- Photopea `layer.mask` API 返回 null（Issue #7341），无法直接导出图层蒙版
+- 备选方案：用户上传带 Alpha 的 PNG 或使用选区 workaround
+- 大图片（>2048×2048）可能导致 Photopea 卡顿
+- 首次加载 Photopea 需要网络连接（~10MB）
 
 ## [0.1.0] - 2026-02-27
 
