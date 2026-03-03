@@ -10,35 +10,36 @@ import { api } from "../../scripts/api.js";
 // ==================== i18n 多语言支持 ====================
 
 const i18n = {
-    data: {},
+    data: null,
+    loaded: false,
     
     // 获取当前语言
     getLocale() {
         return localStorage['AGL.Locale'] || localStorage['Comfy.Settings.AGL.Locale'] || 'en-US';
     },
     
-    // 是否是中文
-    isZh() {
-        const locale = this.getLocale();
-        return locale.startsWith('zh');
-    },
-    
     // 加载语言文件
     async load() {
+        if (this.loaded) return;
         const locale = this.getLocale();
         const lang = locale.startsWith('zh') ? 'zh' : 'en';
         try {
             const resp = await fetch(`/extensions/InpaintRegionEditor/locales/${lang}/main.json`);
             if (resp.ok) {
                 this.data = await resp.json();
+                console.log('i18n loaded:', lang, this.data);
+            } else {
+                console.warn('i18n response not ok:', resp.status);
             }
         } catch (e) {
             console.warn('Failed to load locale:', e);
         }
+        this.loaded = true;
     },
     
     // 获取翻译
     t(key) {
+        if (!this.data) return key;
         const keys = key.split('.');
         let value = this.data;
         for (const k of keys) {
@@ -52,7 +53,7 @@ const i18n = {
     }
 };
 
-// 快捷函数
+// 快捷函数（延迟获取，确保已加载）
 function t(key) {
     return i18n.t(key);
 }
@@ -1235,6 +1236,8 @@ app.registerExtension({
     },
     
     async beforeRegisterNodeDef(nodeType, nodeData) {
+        // 确保语言文件加载完成
+        await i18n.load();
         if (nodeData.name !== "InpaintRegionEditor") return;
         
         // 右键菜单
