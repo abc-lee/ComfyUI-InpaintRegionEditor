@@ -776,9 +776,21 @@ async function loadImageAndDetectMask(node, imageName) {
                 
                 // 检查是否有之前保存的选区坐标
                 const coordsWidget = node.widgets?.find(w => w.name === "region_coords");
-                if (coordsWidget?.value) {
+                let savedRegionStr = coordsWidget?.value;
+                
+                // 如果 widget 值为空，尝试从 widgets_values 读取
+                if (!savedRegionStr || savedRegionStr === "{}") {
+                    // widgets_values 顺序：image, padding, region_coords
+                    const coordsIdx = node.widgets?.findIndex(w => w.name === "region_coords");
+                    if (coordsIdx >= 0 && node.widgets_values?.[coordsIdx]) {
+                        savedRegionStr = node.widgets_values[coordsIdx];
+                        coordsWidget.value = savedRegionStr;  // 恢复到 widget
+                    }
+                }
+                
+                if (savedRegionStr && savedRegionStr !== "{}") {
                     try {
-                        const savedRegion = JSON.parse(coordsWidget.value);
+                        const savedRegion = JSON.parse(savedRegionStr);
                         if (savedRegion.x !== undefined && savedRegion.y !== undefined &&
                             savedRegion.width !== undefined && savedRegion.height !== undefined) {
                             data.regionX = savedRegion.x;
