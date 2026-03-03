@@ -1250,6 +1250,16 @@ app.registerExtension({
             
             const node = this;
             
+            // 确保 region_coords hidden widget 存在
+            let coordsWidget = node.widgets?.find(w => w.name === "region_coords");
+            if (!coordsWidget) {
+                // ComfyUI hidden widget 需要手动创建
+                coordsWidget = node.addWidget("STRING", "region_coords", "{}", () => {}, {
+                    serialize: true,
+                    hidden: true
+                });
+            }
+            
             // 监听图像变化
             const imgW = node.widgets?.find(w => w.name === "image");
             if (imgW) {
@@ -1273,6 +1283,21 @@ app.registerExtension({
                     }
                     node.setDirtyCanvas(true);
                 };
+            }
+        };
+        
+        // 从工作流加载时确保 widget 存在
+        const origConfigure = nodeType.prototype.configure;
+        nodeType.prototype.configure = function(info) {
+            if (origConfigure) origConfigure.apply(this, arguments);
+            
+            const node = this;
+            // 确保 region_coords widget 存在
+            let coordsWidget = node.widgets?.find(w => w.name === "region_coords");
+            if (!coordsWidget) {
+                coordsWidget = node.addWidget("STRING", "region_coords", "{}", () => {}, {
+                    serialize: true
+                });
             }
         };
         
