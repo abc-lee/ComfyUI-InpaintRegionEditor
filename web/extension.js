@@ -7,7 +7,57 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
-// 动态加载 UPNG.js 和 pako（用于保留 Alpha=0 时的 RGB 数据）
+// ==================== i18n 多语言支持 ====================
+
+const i18n = {
+    data: {},
+    
+    // 获取当前语言
+    getLocale() {
+        return localStorage['AGL.Locale'] || localStorage['Comfy.Settings.AGL.Locale'] || 'en-US';
+    },
+    
+    // 是否是中文
+    isZh() {
+        const locale = this.getLocale();
+        return locale.startsWith('zh');
+    },
+    
+    // 加载语言文件
+    async load() {
+        const locale = this.getLocale();
+        const lang = locale.startsWith('zh') ? 'zh' : 'en';
+        try {
+            const resp = await fetch(`/extensions/InpaintRegionEditor/locales/${lang}/main.json`);
+            if (resp.ok) {
+                this.data = await resp.json();
+            }
+        } catch (e) {
+            console.warn('Failed to load locale:', e);
+        }
+    },
+    
+    // 获取翻译
+    t(key) {
+        const keys = key.split('.');
+        let value = this.data;
+        for (const k of keys) {
+            if (value && typeof value === 'object' && k in value) {
+                value = value[k];
+            } else {
+                return key; // 找不到返回 key
+            }
+        }
+        return typeof value === 'string' ? value : key;
+    }
+};
+
+// 快捷函数
+function t(key) {
+    return i18n.t(key);
+}
+
+// ==================== UPNG.js 动态加载 ====================
 let UPNG = null;
 async function loadUPNG() {
     if (UPNG) return UPNG;
@@ -101,7 +151,7 @@ function showPhotopeaModal(node, imagePath) {
     }
     ppState.modal = document.createElement("div");
     ppState.modal.className = "pp-modal";
-    ppState.modal.innerHTML = `<div class="pp-container"><iframe id="pp-iframe" src="https://www.photopea.com/"></iframe><div class="pp-toolbar"><span class="pp-hint">编辑后点击保存</span><div><button id="pp-save" class="pp-btn pp-save">保存</button><button id="pp-cancel" class="pp-btn pp-cancel">取消</button></div></div><div class="pp-status" id="pp-status">加载中...</div></div>`;
+    ppState.modal.innerHTML = `<div class="pp-container"><iframe id="pp-iframe" src="https://www.photopea.com/"></iframe><div class="pp-toolbar"><span class="pp-hint">${t('photopea.editHint')}</span><div><button id="pp-save" class="pp-btn pp-save">${t('photopea.save')}</button><button id="pp-cancel" class="pp-btn pp-cancel">${t('photopea.cancel')}</button></div></div><div class="pp-status" id="pp-status">${t('photopea.loading')}</div></div>`;
     document.body.appendChild(ppState.modal);
     document.getElementById("pp-save").onclick = saveImg;
     document.getElementById("pp-cancel").onclick = closePhotopeaModal;
@@ -122,16 +172,16 @@ async function loadImg() {
         const resp = await fetch(url);
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         await PhotopeaBridge.openImage(await resp.blob());
-        setStatus("已加载");
-    } catch (e) { setStatus("错误: " + e.message); }
+        setStatus(t('photopea.loaded'));
+    } catch (e) { setStatus(t('photopea.error') + e.message); }
 }
 
 async function saveImg() {
     if (!ppState.open) return;
     try {
-        setStatus("导出中...");
+        setStatus(t('photopea.exporting'));
         const blob = await PhotopeaBridge.exportImage("png");
-        setStatus("上传中...");
+        setStatus(t('photopea.uploading'));
         const fd = new FormData();
         fd.append("image", blob, "edited_" + Date.now() + ".png");
         fd.append("type", "input");
@@ -141,10 +191,10 @@ async function saveImg() {
             const w = ppState.node.widgets?.find(x => x.name === "image");
             if (w) { w.value = result.name; if (w.callback) w.callback(result.name); }
             ppState.node.setDirtyCanvas(true);
-            setStatus("已保存");
+            setStatus(t('photopea.saved'));
             setTimeout(closePhotopeaModal, 500);
         }
-    } catch (e) { setStatus("错误: " + e.message); }
+    } catch (e) { setStatus(t('photopea.error') + e.message); }
 }
 
 function closePhotopeaModal() {
@@ -169,7 +219,7 @@ function showPhotopeaMaskModal(node, imagePath) {
     
     ppMaskState.modal = document.createElement("div");
     ppMaskState.modal.className = "pp-modal";
-    ppMaskState.modal.innerHTML = `<div class="pp-container"><iframe id="pp-iframe" src="https://www.photopea.com/"></iframe><div class="pp-toolbar"><span class="pp-hint">用黑色画笔绘制遮罩区域，灰色可产生羽化边缘</span><div><button id="pp-save" class="pp-btn pp-save">保存蒙版</button><button id="pp-cancel" class="pp-btn pp-cancel">取消</button></div></div><div class="pp-status" id="pp-status">加载中...</div></div>`;
+    ppMaskState.modal.innerHTML = `<div class="pp-container"><iframe id="pp-iframe" src="https://www.photopea.com/"></iframe><div class="pp-toolbar"><span class="pp-hint">${t('maskEditor.hint')}</span><div><button id="pp-save" class="pp-btn pp-save">${t('maskEditor.saveMask')}</button><button id="pp-cancel" class="pp-btn pp-cancel">${t('photopea.cancel')}</button></div></div><div class="pp-status" id="pp-status">${t('photopea.loading')}</div></div>`;
     document.body.appendChild(ppMaskState.modal);
     
     document.getElementById("pp-save").onclick = saveMaskImg;
@@ -198,14 +248,14 @@ async function loadImgForMask() {
         
         // 关键修复：分别获取 RGB 和 Alpha，绑过 Canvas 的 premultiplied alpha 问题
         // 1. 获取完整 RGB（不会被掏窟窿）
-        setMaskStatus("加载 RGB 数据...");
+        setMaskStatus(t('maskEditor.loadRgb'));
         let rgbUrl = baseUrl + "&channel=rgb";
         const rgbResp = await fetch(rgbUrl);
         if (!rgbResp.ok) throw new Error("HTTP " + rgbResp.status);
         const rgbBlob = await rgbResp.blob();
         
         // 2. 获取 Alpha 通道（用于创建蒙版层）
-        setMaskStatus("加载 Alpha 通道...");
+        setMaskStatus(t('maskEditor.loadAlpha'));
         let alphaUrl = baseUrl + "&channel=a";
         const alphaResp = await fetch(alphaUrl);
         let alphaBlob = null;
@@ -214,11 +264,11 @@ async function loadImgForMask() {
         }
         
         // 3. 从 Alpha 通道创建蒙版层
-        setMaskStatus("准备蒙版层...");
+        setMaskStatus(t('maskEditor.prepareMask'));
         const maskBlob = await createMaskFromAlpha(alphaBlob);
         
         // 4. 转换为 base64
-        setMaskStatus("转换图像格式...");
+        setMaskStatus(t('maskEditor.converting'));
         const rgbBase64 = await blobToBase64(rgbBlob);
         const maskBase64 = await blobToBase64(maskBlob);
         
@@ -227,14 +277,14 @@ async function loadImgForMask() {
         console.log("蒙版 blob 大小:", maskBlob.size);
         
         // 5. 先打开 RGB 图像（完整 RGB，没窟窿）
-        setMaskStatus("加载图像层...");
+        setMaskStatus(t('maskEditor.loadImageLayer'));
         await PhotopeaBridge.postMessage('app.open("' + rgbBase64 + '", null, false);');
         
         // 6. 等待一下确保文档加载完成
         await new Promise(r => setTimeout(r, 500));
         
         // 7. 将蒙版作为新图层粘贴到当前文档
-        setMaskStatus("加载蒙版层...");
+        setMaskStatus(t('maskEditor.loadMaskLayer'));
         await PhotopeaBridge.postMessage('app.open("' + maskBase64 + '", null, true);');
         
         // 8. 设置图层名称
@@ -243,15 +293,15 @@ async function loadImgForMask() {
             (function() {
                 var doc = app.activeDocument;
                 if (doc.layers.length >= 2) {
-                    doc.layers[0].name = "蒙版层（编辑此层）";
-                    doc.layers[doc.layers.length - 1].name = "参考图像";
+                    doc.layers[0].name = "${t('maskEditor.maskLayerName')}";
+                    doc.layers[doc.layers.length - 1].name = "${t('maskEditor.referenceImage')}";
                 }
             })();
         `);
         
-        setMaskStatus("就绪 - 请在蒙版层上绘制");
+        setMaskStatus(t('maskEditor.ready'));
     } catch (e) { 
-        setMaskStatus("错误: " + e.message); 
+        setMaskStatus(t('photopea.error') + e.message);
         console.error(e);
     }
 }
@@ -414,14 +464,14 @@ async function saveMaskImg() {
     if (!ppMaskState.open) return;
     try {
         // 提前加载 UPNG.js
-        setMaskStatus("准备编码器...");
+        setMaskStatus(t('maskEditor.prepareEncoder'));
         try {
             await loadUPNG();
         } catch (e) {
             console.error("加载 UPNG.js 失败:", e);
         }
         
-        setMaskStatus("导出蒙版...");
+        setMaskStatus(t('maskEditor.exportMask'));
         
         // 先检查图层信息
         const checkScript = `
@@ -463,9 +513,9 @@ async function saveMaskImg() {
             }
         }
         
-        if (!maskBlob) throw new Error("未获取到蒙版数据");
+        if (!maskBlob) throw new Error(t('maskEditor.noMaskData'));
         
-        setMaskStatus("处理蒙版...");
+        setMaskStatus(t('maskEditor.processMask'));
         
         // 获取原始图像
         const originalImageBlob = await getOriginalImageBlob(ppMaskState.path);
@@ -473,7 +523,7 @@ async function saveMaskImg() {
         // 合并蒙版到原图
         const finalBlob = await mergeMaskToImage(originalImageBlob, maskBlob);
         
-        setMaskStatus("上传中...");
+        setMaskStatus(t('photopea.uploading'));
         const fd = new FormData();
         fd.append("image", finalBlob, "mask_" + Date.now() + ".png");
         fd.append("type", "input");
@@ -488,11 +538,11 @@ async function saveMaskImg() {
                 if (w.callback) w.callback(uploadResult.name); 
             }
             ppMaskState.node.setDirtyCanvas(true);
-            setMaskStatus("蒙版已保存");
+            setMaskStatus(t('maskEditor.maskSaved'));
             setTimeout(closePhotopeaMaskModal, 500);
         }
     } catch (e) { 
-        setMaskStatus("错误: " + e.message); 
+        setMaskStatus(t('photopea.error') + e.message);
         console.error(e);
     }
 }
@@ -796,9 +846,11 @@ function drawNode(ctx, node) {
         // 参考区标签
         ctx.font = "8px sans-serif";
         ctx.fillStyle = "rgba(255, 165, 0, 0.9)";
-        ctx.fillRect(rx + 2, ry + 2, 55, 10);
+        const labelText = t('node.referenceArea') + " " + Math.round(data.regionWidth) + "×" + Math.round(data.regionHeight);
+        const labelWidth = ctx.measureText(labelText).width + 6;
+        ctx.fillRect(rx + 2, ry + 2, labelWidth, 10);
         ctx.fillStyle = "#000";
-        ctx.fillText("参考区 " + Math.round(data.regionWidth) + "×" + Math.round(data.regionHeight), rx + 3, ry + 9);
+        ctx.fillText(labelText, rx + 3, ry + 9);
     }
 }
 
@@ -1127,7 +1179,10 @@ function onMouseUp() {
 app.registerExtension({
     name: "InpaintRegionEditor",
     
-    init() {
+    async init() {
+        // 初始化多语言
+        await i18n.load();
+        
         // 全局粘贴事件监听（捕获阶段，优先于系统处理）
         document.addEventListener("paste", async (e) => {
             // 检查是否有选中的节点
@@ -1192,20 +1247,20 @@ app.registerExtension({
             const imgW = node.widgets?.find(w => w.name === "image");
             options.push(null);
             options.push({
-                content: "编辑图像（Photopea）",
-                callback: function() { imgW?.value ? showPhotopeaModal(node, imgW.value) : alert("请先选择图像"); }
+                content: t('menu.editImage'),
+                callback: function() { imgW?.value ? showPhotopeaModal(node, imgW.value) : alert(t('menu.selectImageFirst')); }
             });
             options.push({
-                content: "编辑蒙版（Photopea）",
-                callback: function() { imgW?.value ? showPhotopeaMaskModal(node, imgW.value) : alert("请先选择图像"); }
+                content: t('menu.editMask'),
+                callback: function() { imgW?.value ? showPhotopeaMaskModal(node, imgW.value) : alert(t('menu.selectImageFirst')); }
             });
             // Open in MaskEditor - 使用正确的命令调用
             options.push({
-                content: "Open in MaskEditor",
+                content: t('menu.openMaskEditor'),
                 callback: function() {
-                    if (!imgW?.value) { alert("请先选择图像"); return; }
+                    if (!imgW?.value) { alert(t('menu.selectImageFirst')); return; }
                     const data = nodeImageData.get(node.id);
-                    if (!data?.imageUrl) { alert("图像尚未加载完成"); return; }
+                    if (!data?.imageUrl) { alert(t('menu.imageNotLoaded')); return; }
                     
                     // 创建带有正确 URL 的图像对象供 MaskEditor 使用
                     const maskEditorImg = new Image();

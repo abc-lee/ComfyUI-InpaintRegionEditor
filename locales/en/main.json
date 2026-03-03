@@ -1,0 +1,41 @@
+{
+  "menu": {
+    "editImage": "Edit Image (Photopea)",
+    "editMask": "Edit Mask (Photopea)",
+    "openMaskEditor": "Open in MaskEditor",
+    "selectImageFirst": "Please select an image first",
+    "imageNotLoaded": "Image not loaded yet"
+  },
+  "photopea": {
+    "editHint": "Click Save after editing",
+    "save": "Save",
+    "cancel": "Cancel",
+    "loading": "Loading...",
+    "loaded": "Loaded",
+    "exporting": "Exporting...",
+    "uploading": "Uploading...",
+    "saved": "Saved",
+    "error": "Error: "
+  },
+  "maskEditor": {
+    "hint": "Draw with black brush for mask, gray for feathered edges",
+    "saveMask": "Save Mask",
+    "loadRgb": "Loading RGB data...",
+    "loadAlpha": "Loading Alpha channel...",
+    "prepareMask": "Preparing mask layer...",
+    "converting": "Converting format...",
+    "loadImageLayer": "Loading image layer...",
+    "loadMaskLayer": "Loading mask layer...",
+    "maskLayerName": "Mask Layer (edit this)",
+    "referenceImage": "Reference Image",
+    "ready": "Ready - Draw on mask layer",
+    "prepareEncoder": "Preparing encoder...",
+    "exportMask": "Exporting mask...",
+    "processMask": "Processing mask...",
+    "noMaskData": "No mask data received",
+    "maskSaved": "Mask saved"
+  },
+  "node": {
+    "referenceArea": "Region"
+  }
+}

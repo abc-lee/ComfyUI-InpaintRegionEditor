@@ -1,0 +1,41 @@
+{
+  "menu": {
+    "editImage": "编辑图像（Photopea）",
+    "editMask": "编辑蒙版（Photopea）",
+    "openMaskEditor": "Open in MaskEditor",
+    "selectImageFirst": "请先选择图像",
+    "imageNotLoaded": "图像尚未加载完成"
+  },
+  "photopea": {
+    "editHint": "编辑后点击保存",
+    "save": "保存",
+    "cancel": "取消",
+    "loading": "加载中...",
+    "loaded": "已加载",
+    "exporting": "导出中...",
+    "uploading": "上传中...",
+    "saved": "已保存",
+    "error": "错误: "
+  },
+  "maskEditor": {
+    "hint": "用黑色画笔绘制遮罩区域，灰色可产生羽化边缘",
+    "saveMask": "保存蒙版",
+    "loadRgb": "加载 RGB 数据...",
+    "loadAlpha": "加载 Alpha 通道...",
+    "prepareMask": "准备蒙版层...",
+    "converting": "转换图像格式...",
+    "loadImageLayer": "加载图像层...",
+    "loadMaskLayer": "加载蒙版层...",
+    "maskLayerName": "蒙版层（编辑此层）",
+    "referenceImage": "参考图像",
+    "ready": "就绪 - 请在蒙版层上绘制",
+    "prepareEncoder": "准备编码器...",
+    "exportMask": "导出蒙版...",
+    "processMask": "处理蒙版...",
+    "noMaskData": "未获取到蒙版数据",
+    "maskSaved": "蒙版已保存"
+  },
+  "node": {
+    "referenceArea": "参考区"
+  }
+}
