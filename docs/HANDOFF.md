@@ -1,6 +1,6 @@
 # InpaintRegionEditor 项目交接文档
 
-> 版本：1.3 | 日期：2026-03-03
+> 版本：1.4 | 日期：2026-03-03
 > 交接对象：开发团队
 > 交接人：项目经理 Agent
 
@@ -525,9 +525,10 @@ doc.selection.copy();
 |------|------|------|
 | 0.1 | 2026-02-27 | 初始版本（简化版，仅 Photopea 集成） |
 | 1.0 | 2026-03-02 | 需求最终确认，编写 handoff 文档 |
-| 1.1 | 2026-03-03 | Photopea 蒙版编辑功能，修复 RGB 被掏窟窿问题 |
+| 1.1 | 2026-03-03 | Photopea 蒙版编辑功能，修复透明区域 RGB 数据丢失问题 |
 | 1.2 | 2026-03-03 | 选区调整大小、光标变化、Ctrl+V 粘贴、MaskEditor 集成 |
 | 1.3 | 2026-03-03 | MaskEditor clipspace 支持、选区坐标同步、羽化效果 |
+| 1.4 | 2026-03-03 | 多语言支持（中英文）、修复编辑图像透明区域 RGB 数据丢失、修复选区坐标自动更新 |
 
 ---
 
@@ -536,7 +537,7 @@ doc.selection.copy();
 ### 13.1 Canvas Premultiplied Alpha 问题
 
 **问题描述**：
-当 Canvas 通过 `drawImage()` 绘制带有 Alpha < 255 的 PNG 图像时，浏览器会应用 **premultiplied alpha**，导致 Alpha = 0 的像素 RGB 数据丢失（被"掏窟窿"）。
+当 Canvas 通过 `drawImage()` 绘制带有 Alpha < 255 的 PNG 图像时，浏览器会应用 **premultiplied alpha**，导致 Alpha = 0 的像素 RGB 数据丢失。
 
 **解决方案**：
 1. **加载时**：使用 ComfyUI `/view` API 的 `channel=rgb` 和 `channel=a` 参数分别获取 RGB 和 Alpha 数据

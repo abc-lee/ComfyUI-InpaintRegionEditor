@@ -174,7 +174,7 @@ async function loadImg() {
         const idx = filename.lastIndexOf("/");
         if (idx !== -1) { subfolder = filename.substring(0, idx); filename = filename.substring(idx + 1); }
         
-        // 使用 channel=rgb 获取完整 RGB（避免被"掏窟窿"）
+        // 使用 channel=rgb 获取完整 RGB（避免透明区域 RGB 数据丢失）
         let url = "/view?filename=" + encodeURIComponent(filename) + "&type=" + encodeURIComponent(type) + "&channel=rgb";
         if (subfolder) url += "&subfolder=" + encodeURIComponent(subfolder);
         
@@ -256,7 +256,7 @@ async function loadImgForMask() {
         if (subfolder) baseUrl += "&subfolder=" + encodeURIComponent(subfolder);
         
         // 关键修复：分别获取 RGB 和 Alpha，绑过 Canvas 的 premultiplied alpha 问题
-        // 1. 获取完整 RGB（不会被掏窟窿）
+        // 1. 获取完整 RGB（避免透明区域 RGB 数据丢失）
         setMaskStatus(t('maskEditor.loadRgb'));
         let rgbUrl = baseUrl + "&channel=rgb";
         const rgbResp = await fetch(rgbUrl);
@@ -563,7 +563,7 @@ async function getOriginalImageBlob(imagePath) {
     const idx = filename.lastIndexOf("/");
     if (idx !== -1) { subfolder = filename.substring(0, idx); filename = filename.substring(idx + 1); }
     
-    // 关键：添加 channel=rgb 参数，确保获取完整 RGB 数据（不被掏窟窿）
+    // 关键：添加 channel=rgb 参数，确保获取完整 RGB 数据（避免透明区域 RGB 数据丢失）
     let url = "/view?filename=" + encodeURIComponent(filename) + "&type=" + encodeURIComponent(type) + "&channel=rgb";
     if (subfolder) url += "&subfolder=" + encodeURIComponent(subfolder);
     

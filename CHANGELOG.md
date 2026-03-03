@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-03-03
+
+### Added
+- **多语言支持**：中英文界面，自动跟随 ComfyUI 语言设置
+
+### Fixed
+- **编辑图像模式**：使用 `channel=rgb` 参数获取完整 RGB 数据，避免透明区域 RGB 数据丢失
+- **选区坐标自动更新**：加载新图像时自动计算并更新 `region_coords` widget
+
 ## [1.3.0] - 2026-03-03
 
 ### Added
@@ -18,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 图像加载：编辑蒙版时使用 `channel=rgb` 和 `channel=a` 分离加载
 
 ### Fixed
-- Photopea 编辑蒙版后原图被"掏窟窿"的问题
+- Photopea 编辑蒙版后原图透明区域 RGB 数据丢失的问题
 - MaskEditor 保存后文件路径验证失败的问题
 - 节点显示蒙版效果
 

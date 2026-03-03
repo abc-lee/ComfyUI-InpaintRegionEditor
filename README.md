@@ -3,11 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ComfyUI](https://img.shields.io/badge/ComfyUI-Custom%20Node-blue.svg)](https://github.com/comfyanonymous/ComfyUI)
 
-**增强版遮罩编辑器**：集成 Photopea 图像编辑 + 可拖动选区调整
-
-> ⚠️ **开发中** | 本文档描述的是目标功能，当前版本功能有限
-> 
-> 📋 **完整技术文档**：见 [`docs/HANDOFF.md`](docs/HANDOFF.md)
+**增强版遮罩编辑器**：集成 Photopea 图像编辑 + 可拖动选区调整 + 多语言支持
 
 ---
 
@@ -26,9 +22,10 @@
 ## 🎯 功能特性
 
 - 🎨 **Photopea 集成** - 完整的 Photoshop 级编辑功能（液化、仿制图章等）
-- 📐 **可拖动选区** - 手动调整参考区域位置（不再只是中心扩散）
+- 🎭 **蒙版编辑** - 双图层模式编辑蒙版，支持羽化效果
+- 📐 **可拖动选区** - 手动调整参考区域位置和大小
 - 🔄 **自动蒙版检测** - 从 Alpha 通道提取，无蒙版时友好报错
-- 🎭 **选区自动计算** - 选区 = 遮罩边界 + 扩散像素数
+- 🌐 **多语言支持** - 中英文界面，自动跟随 ComfyUI 设置
 
 ---
 
@@ -53,11 +50,12 @@ git clone https://github.com/YOUR_USERNAME/ComfyUI-InpaintRegionEditor.git
 
 1. 添加 **Inpaint Region Editor** 节点
 2. 上传图像（需要带 Alpha 通道的 PNG）
-3. 右键点击节点 → **"打开 Photopea 编辑"**
-4. 在 Photopea 中编辑图像和蒙版
-5. 保存返回节点
-6. 调整扩散像素数或拖动选区框
-7. 执行工作流
+3. 右键点击节点选择操作：
+   - **编辑图像（Photopea）** - 编辑图像本身
+   - **编辑蒙版（Photopea）** - 双图层蒙版编辑，支持羽化
+   - **Open in MaskEditor** - 使用 ComfyUI 自带蒙版编辑器
+4. 调整扩散像素数或拖动选区框
+5. 执行工作流
 
 ---
 
@@ -85,22 +83,20 @@ git clone https://github.com/YOUR_USERNAME/ComfyUI-InpaintRegionEditor.git
 
 ---
 
-## ⚠️ 当前状态
+## ✅ 已完成功能
 
-### 已完成
 - [x] 基础节点逻辑（`nodes.py`）
 - [x] Photopea iframe 集成
-- [x] 右键菜单打开 Photopea
+- [x] 右键菜单打开 Photopea（编辑图像/编辑蒙版）
 - [x] 图像预览（自己渲染，不依赖 ComfyUI）
-- [x] 选区框绘制（橙色）+ 遮罩区域显示（红色）
+- [x] 选区框绘制（橙色）+ 遮罩区域显示
 - [x] Alpha 通道自动检测蒙版
-- [x] 选区框拖动功能
-
-### 待完善
-- [ ] 拖动体验优化（边界检测、视觉反馈）
-- [ ] 图像缩放/放大查看
-- [ ] Photopea 编辑后的图像刷新
-- [ ] 完整工作流测试
+- [x] 选区框拖动和调整大小
+- [x] 选区约束（必须框住蒙版）
+- [x] Ctrl+V 粘贴图片
+- [x] MaskEditor 集成
+- [x] 多语言支持（中英文）
+- [x] 羽化效果支持
 
 ---
 
@@ -145,4 +141,4 @@ MIT License - 详见 [LICENSE](LICENSE) 文件。
 
 ---
 
-*最后更新：2026-03-02*
+*最后更新：2026-03-03*
