@@ -76,11 +76,11 @@ class InpaintRegionEditor:
             mask = 1.0 - mask  # ComfyUI 约定：1=遮罩区域
         else:
             raise ValueError(
-                "请先创建蒙版（局部重绘需要蒙版）\n"
-                "可以通过以下方式创建：\n"
-                "1. 上传带 Alpha 通道的 PNG\n"
-                "2. 使用 Photopea 编辑后保存\n"
-                "3. 使用 ComfyUI 系统蒙版工具绘制"
+                "Please create a mask first (inpainting requires a mask)\n"
+                "You can create one by:\n"
+                "1. Upload a PNG with Alpha channel\n"
+                "2. Edit in Photopea and save\n"
+                "3. Use ComfyUI's built-in mask editor"
             )
 
         # 计算蒙版边界框
@@ -103,9 +103,9 @@ class InpaintRegionEditor:
             or region_rect["height"] < mask_bounds["height"]
         ):
             raise ValueError(
-                f"选区太小！必须 >= 遮罩\n"
-                f"选区：{region_rect['width']}×{region_rect['height']}\n"
-                f"遮罩：{mask_bounds['width']}×{mask_bounds['height']}"
+                f"Region too small! Must be >= mask\n"
+                f"Region: {region_rect['width']}×{region_rect['height']}\n"
+                f"Mask: {mask_bounds['width']}×{mask_bounds['height']}"
             )
 
         region_rect = self._clamp_to_image(region_rect, img_width, img_height)
