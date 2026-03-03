@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-03
+
+### Added
+- **Photopea 蒙版编辑**：双图层模式（参考图像 + 蒙版层），支持羽化效果
+- **UPNG.js 集成**：保存时保留 Alpha=0 的 RGB 数据，解决 Canvas premultiplied alpha 问题
+- **MaskEditor clipspace 支持**：使用 VALIDATE_INPUTS 支持动态文件路径验证
+- **选区坐标同步**：前端拖动后正确传递到后端（region_coords hidden widget）
+
+### Changed
+- 右键菜单分离：「编辑图像（Photopea）」和「编辑蒙版（Photopea）」两个独立操作
+- 图像加载：编辑蒙版时使用 `channel=rgb` 和 `channel=a` 分离加载
+
+### Fixed
+- Photopea 编辑蒙版后原图被"掏窟窿"的问题
+- MaskEditor 保存后文件路径验证失败的问题
+- 节点显示蒙版效果
+
+### Technical Details
+- **前端**：`loadImgForMask()` 分离 RGB/Alpha，`mergeMaskToImage()` 使用 UPNG.js 编码
+- **后端**：`VALIDATE_INPUTS` 方法支持 clipspace 文件验证
+- **羽化逻辑**：蒙版层黑色半透明 → Alpha 中间值（公式：finalAlpha = 255 - maskAlpha）
+
 ## [1.2.0] - 2026-03-03
 
 ### Added
