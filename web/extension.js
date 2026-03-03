@@ -173,8 +173,11 @@ async function loadImg() {
         if (m) { filename = m[1].trim(); type = m[2]; }
         const idx = filename.lastIndexOf("/");
         if (idx !== -1) { subfolder = filename.substring(0, idx); filename = filename.substring(idx + 1); }
-        let url = "/view?filename=" + encodeURIComponent(filename) + "&type=" + encodeURIComponent(type);
+        
+        // 使用 channel=rgb 获取完整 RGB（避免被"掏窟窿"）
+        let url = "/view?filename=" + encodeURIComponent(filename) + "&type=" + encodeURIComponent(type) + "&channel=rgb";
         if (subfolder) url += "&subfolder=" + encodeURIComponent(subfolder);
+        
         const resp = await fetch(url);
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         await PhotopeaBridge.openImage(await resp.blob());
