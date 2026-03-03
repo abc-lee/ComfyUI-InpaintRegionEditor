@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-03
+
+### Added
+- **选区调整大小**：拖动边缘/角落调整选区大小
+- **光标变化**：移动、调整大小显示不同光标
+- **Ctrl+V 粘贴**：支持直接粘贴图片到节点
+
+### Changed
+- **标签优化**："选区"改为"参考区"，字号缩小，像素数取整
+- **图像尺寸显示**：左下角显示原图尺寸
+
+### Fixed
+- 光标设置被原生代码覆盖
+- Ctrl+V 粘贴时系统创建新 LoadImage 节点
+
 ## [1.1.0] - 2026-03-03
 
 ### Added

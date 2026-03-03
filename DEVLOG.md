@@ -1,5 +1,57 @@
 # InpaintRegionEditor 开发日志
 
+## 2026-03-03 选区交互完善
+
+### 完成的工作
+
+1. **选区调整大小**
+   - 支持拖动边缘/角落调整选区大小
+   - 边缘检测阈值优化（不超过选区 15%）
+   - 约束：选区必须 >= 蒙版边界框
+
+2. **光标变化**
+   - 中间区域：`grab`（移动）
+   - 拖动时：`grabbing`
+   - 边缘/角落：调整大小箭头
+   - 使用 `requestAnimationFrame` 延迟设置，确保在原生代码之后执行
+
+3. **UI 优化**
+   - 标签改为"参考区"，字号缩小
+   - 像素数显示整数
+   - 图像左下角显示原图尺寸
+
+4. **Ctrl+V 粘贴支持**
+   - 全局粘贴事件监听（捕获阶段）
+   - 只处理选中的 InpaintRegionEditor 节点
+   - 阻止系统创建新 LoadImage 节点
+
+### 遇到的问题
+
+1. **光标设置被覆盖**：原生 `onMouseMove` 在我们之后执行，覆盖光标
+   - 解决：使用 `requestAnimationFrame` 延迟设置
+
+2. **系统菜单 "Open in MaskEditor | Image Canvas" 出现**：设置 `previewMediaType = 'image'` 后自动添加
+   - 解决：不设置 `previewMediaType`，改用全局粘贴监听
+
+3. **粘贴时创建新节点**：系统也处理了粘贴事件
+   - 解决：捕获阶段 + `stopImmediatePropagation()`
+
+### 代码结构
+
+```
+extension.js (820 行):
+├── PhotopeaBridge - Photopea iframe 通信
+├── showPhotopeaModal() - Photopea 弹窗
+├── loadImageAndDetectMask() - 加载图像并检测蒙版
+├── constrainRegion() - 选区约束（框住蒙版 + 不超边界）
+├── drawNode() - 绘制图像、尺寸标签、参考区框
+├── getResizeHandle() - 检测鼠标位置（中间/边缘/角落）
+├── onMouseDown/Move/Up() - 拖动和调整大小交互
+└── init() - 全局粘贴事件监听
+```
+
+---
+
 ## 2026-03-03 选区约束 + MaskEditor 集成
 
 ### 完成的工作
