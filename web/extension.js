@@ -1352,7 +1352,7 @@ app.registerExtension({
             }
         };
         
-        // 从工作流加载时确保 widget 存在
+        // 从工作流加载时确保 widget 存在，并重新加载图像
         const origConfigure = nodeType.prototype.configure;
         nodeType.prototype.configure = function(info) {
             if (origConfigure) origConfigure.apply(this, arguments);
@@ -1364,6 +1364,13 @@ app.registerExtension({
                 coordsWidget = node.addWidget("STRING", "region_coords", "{}", () => {}, {
                     serialize: true
                 });
+            }
+            
+            // 刷新节点后重新加载图像
+            const imgW = node.widgets?.find(w => w.name === "image");
+            if (imgW?.value) {
+                // 延迟加载，确保节点完全配置好
+                setTimeout(() => loadImageAndDetectMask(node, imgW.value), 0);
             }
         };
         
