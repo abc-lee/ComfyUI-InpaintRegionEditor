@@ -290,6 +290,15 @@ function drawNode(ctx, node) {
     // 画图像
     ctx.drawImage(img, imgX, imgY, imgW, imgH);
     
+    // 显示原图尺寸（在图像左下角内部）
+    const sizeText = img.naturalWidth + "×" + img.naturalHeight;
+    ctx.font = "10px sans-serif";
+    const textWidth = ctx.measureText(sizeText).width;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    ctx.fillRect(imgX, imgY + imgH - 14, textWidth + 6, 14);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(sizeText, imgX + 3, imgY + imgH - 4);
+    
     // 画选区框（如果有蒙版）
     if (data.hasMask && data.maskBounds) {
         // 橙色选区框
@@ -306,18 +315,59 @@ function drawNode(ctx, node) {
         ctx.strokeRect(rx, ry, rw, rh);
         ctx.setLineDash([]);
         
-        // 选区标签
-        ctx.font = "11px sans-serif";
+        // 参考区标签
+        ctx.font = "8px sans-serif";
         ctx.fillStyle = "rgba(255, 165, 0, 0.9)";
-        ctx.fillRect(rx + 2, ry + 2, 70, 14);
+        ctx.fillRect(rx + 2, ry + 2, 55, 10);
         ctx.fillStyle = "#000";
-        ctx.fillText("选区 " + data.regionWidth + "×" + data.regionHeight, rx + 4, ry + 12);
+        ctx.fillText("参考区 " + Math.round(data.regionWidth) + "×" + Math.round(data.regionHeight), rx + 3, ry + 9);
     }
 }
 
-// ==================== 拖动 ====================
+// ==================== 拖动和调整大小 ====================
 
 let dragging = null;
+const EDGE_THRESHOLD = 8;  // 边缘检测阈值（屏幕像素）
+
+// 检测鼠标在选区的哪个区域
+function getResizeHandle(imgX, imgY, data, scale) {
+    const rx = data.regionX;
+    const ry = data.regionY;
+    const rw = data.regionWidth;
+    const rh = data.regionHeight;
+    
+    // 边缘检测阈值，不超过选区尺寸的 15%
+    const baseThreshold = EDGE_THRESHOLD / scale;
+    const thresholdX = Math.min(baseThreshold, rw * 0.15);
+    const thresholdY = Math.min(baseThreshold, rh * 0.15);
+    
+    // 在选区内部
+    const insideX = imgX >= rx && imgX <= rx + rw;
+    const insideY = imgY >= ry && imgY <= ry + rh;
+    
+    if (!insideX || !insideY) return null;
+    
+    // 检测是否在边缘
+    const nearLeft = imgX - rx < thresholdX;
+    const nearRight = (rx + rw) - imgX < thresholdX;
+    const nearTop = imgY - ry < thresholdY;
+    const nearBottom = (ry + rh) - imgY < thresholdY;
+    
+    // 角落优先
+    if (nearLeft && nearTop) return 'tl';
+    if (nearRight && nearTop) return 'tr';
+    if (nearLeft && nearBottom) return 'bl';
+    if (nearRight && nearBottom) return 'br';
+    
+    // 边缘
+    if (nearLeft) return 'l';
+    if (nearRight) return 'r';
+    if (nearTop) return 't';
+    if (nearBottom) return 'b';
+    
+    // 中间
+    return 'move';
+}
 
 function getImageDrawParams(node) {
     const data = nodeImageData.get(node.id);
@@ -366,20 +416,29 @@ function onMouseDown(node, pos, e) {
     const imgX = (localX - params.imgX) / params.scale;
     const imgY = (localY - params.imgY) / params.scale;
     
-    // 检查是否在选区内
-    const inRegion = imgX >= data.regionX && 
-                     imgX <= data.regionX + data.regionWidth &&
-                     imgY >= data.regionY && 
-                     imgY <= data.regionY + data.regionHeight;
+    // 检测点击位置
+    const handle = getResizeHandle(imgX, imgY, data, params.scale);
     
-    if (inRegion) {
+    if (handle) {
         dragging = {
             node: node,
+            handle: handle,
             startImgX: imgX,
             startImgY: imgY,
             origRegionX: data.regionX,
-            origRegionY: data.regionY
+            origRegionY: data.regionY,
+            origRegionWidth: data.regionWidth,
+            origRegionHeight: data.regionHeight
         };
+        // 拖动时改变光标
+        requestAnimationFrame(() => {
+            const canvasEl = app.canvas.canvas;
+            if (canvasEl) {
+                canvasEl.style.cursor = handle === 'move' ? 'grabbing' : 
+                    ({'tl': 'nwse-resize', 'tr': 'nesw-resize', 'bl': 'nesw-resize', 'br': 'nwse-resize',
+                      'l': 'ew-resize', 'r': 'ew-resize', 't': 'ns-resize', 'b': 'ns-resize'}[handle] || 'crosshair');
+            }
+        });
         return true;  // 消费事件，阻止节点拖动
     }
     
@@ -387,57 +446,147 @@ function onMouseDown(node, pos, e) {
 }
 
 function onMouseMove(e, pos, node) {
+    const data = nodeImageData.get(node.id);
+    if (!data || !data.hasMask) return;
+    
+    const params = getImageDrawParams(node);
+    if (!params) return;
+    
+    // 转图像坐标
+    const localX = pos[0];
+    const localY = pos[1];
+    const imgX = (localX - params.imgX) / params.scale;
+    const imgY = (localY - params.imgY) / params.scale;
+    
+    // 检测手柄
+    const handle = getResizeHandle(imgX, imgY, data, params.scale);
+    
     // 如果正在拖动
     if (dragging) {
-        const data = nodeImageData.get(dragging.node.id);
-        if (!data) return;
-        
-        const params = getImageDrawParams(dragging.node);
-        if (!params) return;
-        
-        // pos 已经是节点本地坐标
-        const localX = pos[0];
-        const localY = pos[1];
-        
-        const imgX = (localX - params.imgX) / params.scale;
-        const imgY = (localY - params.imgY) / params.scale;
-        
         // 计算偏移
         const dx = imgX - dragging.startImgX;
         const dy = imgY - dragging.startImgY;
         
-        // 计算新位置
-        let newRegionX = dragging.origRegionX + dx;
-        let newRegionY = dragging.origRegionY + dy;
+        const mask = data.maskBounds;
         
-        // 约束1：选区必须包含蒙版
-        const maskLeft = data.maskBounds.x;
-        const maskTop = data.maskBounds.y;
-        const maskRight = data.maskBounds.x + data.maskBounds.width;
-        const maskBottom = data.maskBounds.y + data.maskBounds.height;
-        
-        // 约束2：选区不能超出图像边界
-        const imageRight = data.imageWidth;
-        const imageBottom = data.imageHeight;
-        
-        // 综合约束
-        // X方向：选区左边 <= 蒙版左边，选区右边 >= 蒙版右边，且选区不能超出图像
-        let minX = maskRight - data.regionWidth;  // 选区右边 >= 蒙版右边
-        let maxX = maskLeft;                       // 选区左边 <= 蒙版左边
-        
-        // 加上图像边界约束
-        minX = Math.max(0, minX);                           // 选区左边 >= 0
-        maxX = Math.min(maxX, imageRight - data.regionWidth); // 选区右边 <= 图像右边
-        
-        let minY = maskBottom - data.regionHeight;
-        let maxY = maskTop;
-        
-        minY = Math.max(0, minY);
-        maxY = Math.min(maxY, imageBottom - data.regionHeight);
-        
-        // 应用约束
-        data.regionX = Math.max(minX, Math.min(maxX, newRegionX));
-        data.regionY = Math.max(minY, Math.min(maxY, newRegionY));
+        if (dragging.handle === 'move') {
+            // 拖动位置
+            let newRegionX = dragging.origRegionX + dx;
+            let newRegionY = dragging.origRegionY + dy;
+            
+            const mask = data.maskBounds;
+            
+            // 约束1：选区必须框住蒙版
+            // 选区左边 <= 蒙版左边，选区右边 >= 蒙版右边
+            const maskRight = mask.x + mask.width;
+            const maskBottom = mask.y + mask.height;
+            
+            let minX = maskRight - data.regionWidth;  // 选区右边 >= 蒙版右边
+            let maxX = mask.x;                         // 选区左边 <= 蒙版左边
+            
+            let minY = maskBottom - data.regionHeight;
+            let maxY = mask.y;
+            
+            // 约束2：选区不能超出图像边界
+            minX = Math.max(0, minX);
+            maxX = Math.min(maxX, data.imageWidth - data.regionWidth);
+            minY = Math.max(0, minY);
+            maxY = Math.min(maxY, data.imageHeight - data.regionHeight);
+            
+            data.regionX = Math.max(minX, Math.min(maxX, newRegionX));
+            data.regionY = Math.max(minY, Math.min(maxY, newRegionY));
+            
+        } else {
+            // 调整大小
+            let newWidth = dragging.origRegionWidth;
+            let newHeight = dragging.origRegionHeight;
+            let newX = dragging.origRegionX;
+            let newY = dragging.origRegionY;
+            
+            const handle = dragging.handle;
+            
+            // 根据手柄类型调整
+            if (handle.includes('r')) {
+                // 右边
+                newWidth = dragging.origRegionWidth + dx;
+            }
+            if (handle.includes('l')) {
+                // 左边
+                newWidth = dragging.origRegionWidth - dx;
+                newX = dragging.origRegionX + dx;
+            }
+            if (handle.includes('b')) {
+                // 下边
+                newHeight = dragging.origRegionHeight + dy;
+            }
+            if (handle.includes('t')) {
+                // 上边
+                newHeight = dragging.origRegionHeight - dy;
+                newY = dragging.origRegionY + dy;
+            }
+            
+            // 约束1：最小尺寸 = 蒙版边界框
+            const minW = mask.width;
+            const minH = mask.height;
+            newWidth = Math.max(minW, newWidth);
+            newHeight = Math.max(minH, newHeight);
+            
+            // 约束2：最大尺寸 = 图像边界
+            newWidth = Math.min(newWidth, data.imageWidth);
+            newHeight = Math.min(newHeight, data.imageHeight);
+            
+            // 约束3：位置不能超出边界
+            if (newX < 0) {
+                newWidth += newX;  // 减小宽度
+                newX = 0;
+            }
+            if (newY < 0) {
+                newHeight += newY;
+                newY = 0;
+            }
+            if (newX + newWidth > data.imageWidth) {
+                newWidth = data.imageWidth - newX;
+            }
+            if (newY + newHeight > data.imageHeight) {
+                newHeight = data.imageHeight - newY;
+            }
+            
+            // 约束4：选区必须框住蒙版
+            const maskRight = mask.x + mask.width;
+            const maskBottom = mask.y + mask.height;
+            
+            // 如果左边 > 蒙版左边，调整
+            if (newX > mask.x) {
+                const diff = newX - mask.x;
+                newX = mask.x;
+                newWidth += diff;
+            }
+            // 如果右边 < 蒙版右边，调整
+            if (newX + newWidth < maskRight) {
+                newWidth = maskRight - newX;
+            }
+            // 如果上边 > 蒙版上边，调整
+            if (newY > mask.y) {
+                const diff = newY - mask.y;
+                newY = mask.y;
+                newHeight += diff;
+            }
+            // 如果下边 < 蒙版下边，调整
+            if (newY + newHeight < maskBottom) {
+                newHeight = maskBottom - newY;
+            }
+            
+            // 再次检查边界
+            if (newX < 0) { newX = 0; }
+            if (newY < 0) { newY = 0; }
+            if (newX + newWidth > data.imageWidth) { newWidth = data.imageWidth - newX; }
+            if (newY + newHeight > data.imageHeight) { newHeight = data.imageHeight - newY; }
+            
+            data.regionX = newX;
+            data.regionY = newY;
+            data.regionWidth = newWidth;
+            data.regionHeight = newHeight;
+        }
         
         // 同步到 widget
         const coordsWidget = dragging.node.widgets?.find(w => w.name === "region_coords");
@@ -445,17 +594,54 @@ function onMouseMove(e, pos, node) {
             coordsWidget.value = JSON.stringify({
                 x: Math.round(data.regionX),
                 y: Math.round(data.regionY),
-                width: data.regionWidth,
-                height: data.regionHeight
+                width: Math.round(data.regionWidth),
+                height: Math.round(data.regionHeight)
             });
         }
         
         dragging.node.setDirtyCanvas(true);
+    } else {
+        // 非拖动状态：检测光标位置
+        const handle = getResizeHandle(imgX, imgY, data, params.scale);
+        
+        if (handle) {
+            // 根据手柄类型设置光标
+            const cursorMap = {
+                'move': 'grab',
+                'tl': 'nwse-resize',
+                'tr': 'nesw-resize',
+                'bl': 'nesw-resize',
+                'br': 'nwse-resize',
+                'l': 'ew-resize',
+                'r': 'ew-resize',
+                't': 'ns-resize',
+                'b': 'ns-resize'
+            };
+            // 延迟设置，确保在原生代码之后执行
+            const cursor = cursorMap[handle] || 'crosshair';
+            requestAnimationFrame(() => {
+                const canvasEl = app.canvas.canvas;
+                if (canvasEl) {
+                    canvasEl.style.cursor = cursor;
+                }
+            });
+        } else {
+            const canvasEl = app.canvas.canvas;
+            if (canvasEl) {
+                canvasEl.style.cursor = 'crosshair';
+            }
+        }
     }
 }
 
 function onMouseUp() {
     dragging = null;
+    requestAnimationFrame(() => {
+        const canvasEl = app.canvas.canvas;
+        if (canvasEl) {
+            canvasEl.style.cursor = 'crosshair';
+        }
+    });
 }
 
 // ==================== 注册扩展 ====================
