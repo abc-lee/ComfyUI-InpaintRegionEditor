@@ -773,27 +773,19 @@ async function loadImageAndDetectMask(node, imageName) {
             
             if (hasMask && minX <= maxX && minY <= maxY) {
                 data.maskBounds = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
-                
-                // 检查是否有之前保存的选区坐标
-                const coordsWidget = node.widgets?.find(w => w.name === "region_coords");
-                if (coordsWidget?.value) {
-                    try {
-                        const savedRegion = JSON.parse(coordsWidget.value);
-                        if (savedRegion.x !== undefined && savedRegion.y !== undefined &&
-                            savedRegion.width !== undefined && savedRegion.height !== undefined) {
-                            data.regionX = savedRegion.x;
-                            data.regionY = savedRegion.y;
-                            data.regionWidth = savedRegion.width;
-                            data.regionHeight = savedRegion.height;
-                            nodeImageData.set(node.id, data);
-                            node.setDirtyCanvas(true);
-                            return;
-                        }
-                    } catch (e) {}
-                }
-                
-                // 没有保存的选区，重新计算
+                // 使用统一的约束函数计算选区
                 constrainRegion(data, padding);
+                
+                // 同步到 region_coords widget
+                const coordsWidget = node.widgets?.find(w => w.name === "region_coords");
+                if (coordsWidget) {
+                    coordsWidget.value = JSON.stringify({
+                        x: Math.round(data.regionX),
+                        y: Math.round(data.regionY),
+                        width: Math.round(data.regionWidth),
+                        height: Math.round(data.regionHeight)
+                    });
+                }
             }
             
             nodeImageData.set(node.id, data);
@@ -1353,11 +1345,6 @@ app.registerExtension({
                     if (origCb) origCb.apply(this, arguments);
                     loadImageAndDetectMask(node, v);
                 };
-                
-                // 刷新节点时：widget 已有值，需要加载图像
-                if (imgW.value) {
-                    setTimeout(() => loadImageAndDetectMask(node, imgW.value), 0);
-                }
             }
             
             // 监听 padding 变化
@@ -1376,7 +1363,7 @@ app.registerExtension({
             }
         };
         
-        // 从工作流加载时确保 widget 存在，并重新加载图像
+        // 从工作流加载时确保 widget 存在
         const origConfigure = nodeType.prototype.configure;
         nodeType.prototype.configure = function(info) {
             if (origConfigure) origConfigure.apply(this, arguments);
@@ -1388,13 +1375,6 @@ app.registerExtension({
                 coordsWidget = node.addWidget("STRING", "region_coords", "{}", () => {}, {
                     serialize: true
                 });
-            }
-            
-            // 刷新节点后重新加载图像
-            const imgW = node.widgets?.find(w => w.name === "image");
-            if (imgW?.value) {
-                // 延迟加载，确保节点完全配置好
-                setTimeout(() => loadImageAndDetectMask(node, imgW.value), 0);
             }
         };
         
