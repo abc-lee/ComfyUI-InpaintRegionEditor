@@ -7,6 +7,32 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
+// 动态加载 UPNG.js 和 pako（用于保留 Alpha=0 时的 RGB 数据）
+let UPNG = null;
+async function loadUPNG() {
+    if (UPNG) return UPNG;
+    
+    // 先加载 pako（UPNG 依赖）
+    if (!window.pako) {
+        await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    }
+    
+    // 再加载 UPNG
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/upng-js/2.1.0/UPNG.min.js';
+        script.onload = () => { UPNG = window.UPNG; resolve(UPNG); };
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+}
+
 // ==================== Photopea Bridge ====================
 
 const PhotopeaBridge = {
@@ -127,6 +153,455 @@ function closePhotopeaModal() {
     ppState.node = null; ppState.path = null;
 }
 
+// ==================== Photopea 蒙版编辑模式 ====================
+
+let ppMaskState = { modal: null, node: null, path: null, open: false, mode: "mask" };
+
+function showPhotopeaMaskModal(node, imagePath) {
+    ppMaskState = { modal: null, node, path: imagePath, open: true, mode: "mask" };
+    
+    if (!document.getElementById("pp-style")) {
+        const style = document.createElement("style");
+        style.id = "pp-style";
+        style.textContent = `.pp-modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:99999;display:flex;align-items:center;justify-content:center}.pp-container{width:95%;height:95%;display:flex;flex-direction:column;background:#1e1e1e;border-radius:8px;overflow:hidden}#pp-iframe{flex:1;width:100%;border:none}.pp-toolbar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#2d2d2d;border-top:1px solid #444}.pp-hint{color:#999;font-size:13px}.pp-btn{padding:10px 18px;border:none;border-radius:6px;cursor:pointer;font-size:14px;margin-left:10px}.pp-save{background:#107c10;color:#fff}.pp-cancel{background:#555;color:#fff}.pp-status{padding:8px 16px;background:#1a1a1a;color:#888;font-size:12px}`;
+        document.head.appendChild(style);
+    }
+    
+    ppMaskState.modal = document.createElement("div");
+    ppMaskState.modal.className = "pp-modal";
+    ppMaskState.modal.innerHTML = `<div class="pp-container"><iframe id="pp-iframe" src="https://www.photopea.com/"></iframe><div class="pp-toolbar"><span class="pp-hint">用黑色画笔绘制遮罩区域，灰色可产生羽化边缘</span><div><button id="pp-save" class="pp-btn pp-save">保存蒙版</button><button id="pp-cancel" class="pp-btn pp-cancel">取消</button></div></div><div class="pp-status" id="pp-status">加载中...</div></div>`;
+    document.body.appendChild(ppMaskState.modal);
+    
+    document.getElementById("pp-save").onclick = saveMaskImg;
+    document.getElementById("pp-cancel").onclick = closePhotopeaMaskModal;
+    document.getElementById("pp-iframe").onload = function() { 
+        if (ppMaskState.open) { 
+            PhotopeaBridge.init(this); 
+            loadImgForMask(); 
+        } 
+    };
+}
+
+function setMaskStatus(t) { const el = document.getElementById("pp-status"); if (el) el.textContent = t; }
+
+async function loadImgForMask() {
+    try {
+        // 解析文件路径
+        let filename = ppMaskState.path, type = "input", subfolder = "";
+        const m = ppMaskState.path.match(/^(.+?)\s*\[(\w+)\]$/);
+        if (m) { filename = m[1].trim(); type = m[2]; }
+        const idx = filename.lastIndexOf("/");
+        if (idx !== -1) { subfolder = filename.substring(0, idx); filename = filename.substring(idx + 1); }
+        
+        let baseUrl = "/view?filename=" + encodeURIComponent(filename) + "&type=" + encodeURIComponent(type);
+        if (subfolder) baseUrl += "&subfolder=" + encodeURIComponent(subfolder);
+        
+        // 关键修复：分别获取 RGB 和 Alpha，绑过 Canvas 的 premultiplied alpha 问题
+        // 1. 获取完整 RGB（不会被掏窟窿）
+        setMaskStatus("加载 RGB 数据...");
+        let rgbUrl = baseUrl + "&channel=rgb";
+        const rgbResp = await fetch(rgbUrl);
+        if (!rgbResp.ok) throw new Error("HTTP " + rgbResp.status);
+        const rgbBlob = await rgbResp.blob();
+        
+        // 2. 获取 Alpha 通道（用于创建蒙版层）
+        setMaskStatus("加载 Alpha 通道...");
+        let alphaUrl = baseUrl + "&channel=a";
+        const alphaResp = await fetch(alphaUrl);
+        let alphaBlob = null;
+        if (alphaResp.ok) {
+            alphaBlob = await alphaResp.blob();
+        }
+        
+        // 3. 从 Alpha 通道创建蒙版层
+        setMaskStatus("准备蒙版层...");
+        const maskBlob = await createMaskFromAlpha(alphaBlob);
+        
+        // 4. 转换为 base64
+        setMaskStatus("转换图像格式...");
+        const rgbBase64 = await blobToBase64(rgbBlob);
+        const maskBase64 = await blobToBase64(maskBlob);
+        
+        console.log("RGB blob 大小:", rgbBlob.size);
+        console.log("Alpha blob 大小:", alphaBlob?.size);
+        console.log("蒙版 blob 大小:", maskBlob.size);
+        
+        // 5. 先打开 RGB 图像（完整 RGB，没窟窿）
+        setMaskStatus("加载图像层...");
+        await PhotopeaBridge.postMessage('app.open("' + rgbBase64 + '", null, false);');
+        
+        // 6. 等待一下确保文档加载完成
+        await new Promise(r => setTimeout(r, 500));
+        
+        // 7. 将蒙版作为新图层粘贴到当前文档
+        setMaskStatus("加载蒙版层...");
+        await PhotopeaBridge.postMessage('app.open("' + maskBase64 + '", null, true);');
+        
+        // 8. 设置图层名称
+        await new Promise(r => setTimeout(r, 300));
+        await PhotopeaBridge.postMessage(`
+            (function() {
+                var doc = app.activeDocument;
+                if (doc.layers.length >= 2) {
+                    doc.layers[0].name = "蒙版层（编辑此层）";
+                    doc.layers[doc.layers.length - 1].name = "参考图像";
+                }
+            })();
+        `);
+        
+        setMaskStatus("就绪 - 请在蒙版层上绘制");
+    } catch (e) { 
+        setMaskStatus("错误: " + e.message); 
+        console.error(e);
+    }
+}
+
+// 从 Alpha 通道创建蒙版层
+async function createMaskFromAlpha(alphaBlob) {
+    return new Promise((resolve) => {
+        if (!alphaBlob) {
+            // 没有 Alpha 数据，创建透明蒙版
+            const canvas = document.createElement("canvas");
+            canvas.width = 512;
+            canvas.height = 512;
+            canvas.toBlob((blob) => resolve(blob), "image/png");
+            return;
+        }
+        
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            
+            // channel=a 返回的是 RGBA 图像，Alpha 值在 Alpha 通道
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, img.width, img.height);
+            const pixels = imageData.data;
+            
+            // 检查是否有遮罩（Alpha < 255 表示有遮罩）
+            let hasMask = false;
+            for (let i = 0; i < pixels.length; i += 4) {
+                if (pixels[i + 3] < 255) {  // Alpha 通道
+                    hasMask = true;
+                    break;
+                }
+            }
+            
+            if (hasMask) {
+                // 从 Alpha 创建蒙版层
+                // channel=a 返回的 Alpha：255=不透明，0=透明
+                // 我们需要：透明区域(Alpha=0) → 黑色不透明蒙版
+                ctx.clearRect(0, 0, img.width, img.height);
+                
+                const maskData = ctx.createImageData(img.width, img.height);
+                for (let i = 0; i < pixels.length; i += 4) {
+                    const alphaValue = pixels[i + 3];  // Alpha 通道
+                    if (alphaValue < 255) {
+                        const maskAlpha = 255 - alphaValue;  // 反转
+                        maskData.data[i] = 0;      // 黑色
+                        maskData.data[i + 1] = 0;
+                        maskData.data[i + 2] = 0;
+                        maskData.data[i + 3] = maskAlpha;
+                    }
+                }
+                ctx.putImageData(maskData, 0, 0);
+                console.log("已有蒙版，已转换为蒙版层");
+            } else {
+                ctx.clearRect(0, 0, img.width, img.height);
+                console.log("创建透明蒙版，尺寸:", img.width, "x", img.height);
+            }
+            
+            canvas.toBlob((blob) => resolve(blob), "image/png");
+        };
+        img.onerror = () => {
+            const canvas = document.createElement("canvas");
+            canvas.width = 512;
+            canvas.height = 512;
+            canvas.toBlob((blob) => resolve(blob), "image/png");
+        };
+        img.src = URL.createObjectURL(alphaBlob);
+    });
+}
+
+async function getOrCreateMaskBlob(node, imgBlob) {
+    // 检查图像是否有 Alpha 通道（已有蒙版）
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = async function() {
+            const canvas = document.createElement("canvas");
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0);
+            
+            const imageData = ctx.getImageData(0, 0, img.width, img.height);
+            const pixels = imageData.data;
+            
+            // 检查是否有透明像素
+            let hasMask = false;
+            for (let i = 3; i < pixels.length; i += 4) {
+                if (pixels[i] < 255) {
+                    hasMask = true;
+                    break;
+                }
+            }
+            
+            if (hasMask) {
+                // 从 Alpha 通道创建蒙版层
+                // 转换逻辑（与保存时相反）：
+                // - 原图 Alpha = 0（遮罩）→ 蒙版层黑色不透明
+                // - 原图 Alpha = 255（无遮罩）→ 蒙版层透明
+                // - 原图 Alpha = 中间值（羽化）→ 蒙版层黑色半透明
+                
+                // 先清除 canvas
+                ctx.clearRect(0, 0, img.width, img.height);
+                
+                const maskData = ctx.createImageData(img.width, img.height);
+                for (let i = 0; i < pixels.length; i += 4) {
+                    const alpha = pixels[i + 3];  // 原图的 Alpha
+                    if (alpha < 255) {
+                        // 有遮罩的区域：画黑色
+                        // alpha 越小 = 越遮罩 = 蒙版层越不透明
+                        const maskAlpha = 255 - alpha;  // 反转
+                        maskData.data[i] = 0;      // 黑色
+                        maskData.data[i + 1] = 0;
+                        maskData.data[i + 2] = 0;
+                        maskData.data[i + 3] = maskAlpha;
+                    }
+                    // alpha = 255 的像素保持透明（maskData.data[i+3] 默认是 0）
+                }
+                ctx.putImageData(maskData, 0, 0);
+                console.log("已有蒙版，已转换为蒙版层");
+            } else {
+                // 创建透明蒙版（用户在上面画黑色 = 遮罩）
+                // 清除 canvas，保持完全透明
+                ctx.clearRect(0, 0, img.width, img.height);
+                console.log("创建透明蒙版，尺寸:", img.width, "x", img.height);
+            }
+            
+            // 导出为 PNG，确保保留透明通道
+            canvas.toBlob((blob) => {
+                console.log("蒙版 blob 大小:", blob.size, "type:", blob.type);
+                resolve(blob);
+            }, "image/png");
+        };
+        img.onerror = () => {
+            // 出错时返回白色蒙版
+            const canvas = document.createElement("canvas");
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext("2d");
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, 512, 512);
+            canvas.toBlob((blob) => resolve(blob), "image/png");
+        };
+        img.src = URL.createObjectURL(imgBlob);
+    });
+}
+
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function saveMaskImg() {
+    if (!ppMaskState.open) return;
+    try {
+        // 提前加载 UPNG.js
+        setMaskStatus("准备编码器...");
+        try {
+            await loadUPNG();
+        } catch (e) {
+            console.error("加载 UPNG.js 失败:", e);
+        }
+        
+        setMaskStatus("导出蒙版...");
+        
+        // 先检查图层信息
+        const checkScript = `
+            (function() {
+                var doc = app.activeDocument;
+                var info = "图层: " + doc.layers.length + "\\n";
+                for (var i = 0; i < doc.layers.length; i++) {
+                    info += i + ": " + doc.layers[i].name + " visible=" + doc.layers[i].visible + "\\n";
+                }
+                app.echoToOE(info);
+            })();
+        `;
+        const checkResult = await PhotopeaBridge.postMessage(checkScript);
+        console.log("图层信息:", checkResult);
+        
+        // 导出脚本：隐藏图像层，只导出蒙版层
+        const exportScript = `
+            (function() {
+                var doc = app.activeDocument;
+                // 隐藏所有图层
+                for (var i = 0; i < doc.layers.length; i++) {
+                    doc.layers[i].visible = false;
+                }
+                // 只显示最上层（蒙版层，索引0）
+                doc.layers[0].visible = true;
+                // 导出
+                doc.saveToOE("png");
+            })();
+        `;
+        
+        const result = await PhotopeaBridge.postMessage(exportScript);
+        
+        // 提取 ArrayBuffer
+        let maskBlob = null;
+        for (let i = 0; i < result.length; i++) {
+            if (result[i] instanceof ArrayBuffer) {
+                maskBlob = new Blob([result[i]], { type: "image/png" });
+                break;
+            }
+        }
+        
+        if (!maskBlob) throw new Error("未获取到蒙版数据");
+        
+        setMaskStatus("处理蒙版...");
+        
+        // 获取原始图像
+        const originalImageBlob = await getOriginalImageBlob(ppMaskState.path);
+        
+        // 合并蒙版到原图
+        const finalBlob = await mergeMaskToImage(originalImageBlob, maskBlob);
+        
+        setMaskStatus("上传中...");
+        const fd = new FormData();
+        fd.append("image", finalBlob, "mask_" + Date.now() + ".png");
+        fd.append("type", "input");
+        
+        const resp = await api.fetchApi("/upload/image", { method: "POST", body: fd });
+        const uploadResult = await resp.json();
+        
+        if (uploadResult.name) {
+            const w = ppMaskState.node.widgets?.find(x => x.name === "image");
+            if (w) { 
+                w.value = uploadResult.name; 
+                if (w.callback) w.callback(uploadResult.name); 
+            }
+            ppMaskState.node.setDirtyCanvas(true);
+            setMaskStatus("蒙版已保存");
+            setTimeout(closePhotopeaMaskModal, 500);
+        }
+    } catch (e) { 
+        setMaskStatus("错误: " + e.message); 
+        console.error(e);
+    }
+}
+
+async function getOriginalImageBlob(imagePath) {
+    let filename = imagePath, type = "input", subfolder = "";
+    const m = imagePath.match(/^(.+?)\s*\[(\w+)\]$/);
+    if (m) { filename = m[1].trim(); type = m[2]; }
+    const idx = filename.lastIndexOf("/");
+    if (idx !== -1) { subfolder = filename.substring(0, idx); filename = filename.substring(idx + 1); }
+    
+    // 关键：添加 channel=rgb 参数，确保获取完整 RGB 数据（不被掏窟窿）
+    let url = "/view?filename=" + encodeURIComponent(filename) + "&type=" + encodeURIComponent(type) + "&channel=rgb";
+    if (subfolder) url += "&subfolder=" + encodeURIComponent(subfolder);
+    
+    console.log("获取原图 URL:", url);
+    const resp = await fetch(url);
+    return await resp.blob();
+}
+
+async function mergeMaskToImage(imageBlob, maskBlob) {
+    // 加载 UPNG.js（用于绑过 Canvas 的 premultiplied alpha 问题）
+    try {
+        await loadUPNG();
+    } catch (e) {
+        console.error("加载 UPNG.js 失败:", e);
+    }
+    
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = async function() {
+            const maskImg = new Image();
+            maskImg.onload = async function() {
+                const w = img.width;
+                const h = img.height;
+                
+                const canvas = document.createElement("canvas");
+                canvas.width = w;
+                canvas.height = h;
+                const ctx = canvas.getContext("2d");
+                
+                // 绘制原图
+                ctx.drawImage(img, 0, 0);
+                
+                // 获取图像数据
+                const imageData = ctx.getImageData(0, 0, w, h);
+                const pixels = imageData.data;
+                
+                // 创建临时 canvas 读取蒙版灰度
+                const maskCanvas = document.createElement("canvas");
+                maskCanvas.width = w;
+                maskCanvas.height = h;
+                const maskCtx = maskCanvas.getContext("2d");
+                maskCtx.drawImage(maskImg, 0, 0, w, h);
+                const maskData = maskCtx.getImageData(0, 0, w, h);
+                const maskPixels = maskData.data;
+                
+                // 合并蒙版到 Alpha 通道
+                // 蒙版层逻辑（用户画黑色）：
+                // - 黑色不透明（maskAlpha=255）→ 遮罩 → Alpha = 0
+                // - 黑色半透明（maskAlpha=128）→ 羽化 → Alpha = 128
+                // - 完全透明（maskAlpha=0）→ 不遮罩 → Alpha = 255
+                // 公式：最终 Alpha = 255 - maskAlpha
+                
+                let alphaSamples = [];
+                for (let i = 0; i < pixels.length; i += 4) {
+                    const maskAlpha = maskPixels[i + 3];  // 蒙版层的透明度
+                    const finalAlpha = 255 - maskAlpha;   // 反转：用户画的 = 遮罩
+                    pixels[i + 3] = finalAlpha;
+                    
+                    // 收集羽化样本
+                    if (alphaSamples.length < 10 && maskAlpha > 0 && maskAlpha < 255) {
+                        alphaSamples.push({ maskAlpha, finalAlpha });
+                    }
+                }
+                
+                if (alphaSamples.length > 0) {
+                    console.log("羽化样本 (maskAlpha → finalAlpha):", alphaSamples);
+                }
+                
+                console.log("合并完成，尺寸:", w, "x", h);
+                
+                // 使用 UPNG.js 编码（保留 Alpha=0 时的 RGB 数据）
+                if (UPNG) {
+                    console.log("使用 UPNG.js 编码 PNG");
+                    const rgbaBuffer = imageData.data.buffer;
+                    const pngBuffer = UPNG.encode([rgbaBuffer], w, h, 0);
+                    const blob = new Blob([pngBuffer], { type: "image/png" });
+                    console.log("UPNG 编码完成，blob 大小:", blob.size);
+                    resolve(blob);
+                } else {
+                    // 回退到 Canvas（会丢失 Alpha=0 的 RGB）
+                    console.log("UPNG 不可用，使用 Canvas 编码");
+                    ctx.putImageData(imageData, 0, 0);
+                    canvas.toBlob((blob) => resolve(blob), "image/png");
+                }
+            };
+            maskImg.src = URL.createObjectURL(maskBlob);
+        };
+        img.src = URL.createObjectURL(imageBlob);
+    });
+}
+
+function closePhotopeaMaskModal() {
+    ppMaskState.open = false;
+    if (ppMaskState.modal) { ppMaskState.modal.remove(); ppMaskState.modal = null; }
+    ppMaskState.node = null; ppMaskState.path = null;
+}
+
 // ==================== 图像和选区数据 ====================
 
 const nodeImageData = new Map();  // 存储每个节点的图像和选区数据
@@ -174,6 +649,8 @@ function constrainRegion(data, padding) {
 async function loadImageAndDetectMask(node, imageName) {
     if (!imageName) return;
     
+    console.log("loadImageAndDetectMask 开始:", imageName);
+    
     try {
         // 解析文件名
         let filename = imageName, type = "input", subfolder = "";
@@ -182,13 +659,16 @@ async function loadImageAndDetectMask(node, imageName) {
         const idx = filename.lastIndexOf("/");
         if (idx !== -1) { subfolder = filename.substring(0, idx); filename = filename.substring(idx + 1); }
         
-        // 获取图像
+        // 加载完整图像（带 Alpha，用于显示蒙版效果）
         let url = "/view?filename=" + encodeURIComponent(filename) + "&type=" + encodeURIComponent(type);
         if (subfolder) url += "&subfolder=" + encodeURIComponent(subfolder);
+        
+        console.log("图像 URL:", url);
         
         const resp = await fetch(url);
         if (!resp.ok) return;
         const blob = await resp.blob();
+        console.log("图像 blob 大小:", blob.size);
         
         // 创建图像对象
         const img = new Image();
@@ -212,12 +692,10 @@ async function loadImageAndDetectMask(node, imageName) {
                     const alpha = pixels[i + 3];
                     if (alpha < 255) {
                         hasMask = true;
-                        if (alpha < 128) {
-                            minX = Math.min(minX, x);
-                            minY = Math.min(minY, y);
-                            maxX = Math.max(maxX, x);
-                            maxY = Math.max(maxY, y);
-                        }
+                        minX = Math.min(minX, x);
+                        minY = Math.min(minY, y);
+                        maxX = Math.max(maxX, x);
+                        maxY = Math.max(maxY, y);
                     }
                 }
             }
@@ -227,7 +705,7 @@ async function loadImageAndDetectMask(node, imageName) {
             // 存储数据（包含原始URL供 MaskEditor 使用）
             const data = {
                 image: img,
-                imageUrl: url,  // 保存原始 ComfyUI URL
+                imageUrl: url,  // 保存原始 URL
                 imageName: filename,
                 imageWidth: img.width,
                 imageHeight: img.height,
@@ -714,8 +1192,12 @@ app.registerExtension({
             const imgW = node.widgets?.find(w => w.name === "image");
             options.push(null);
             options.push({
-                content: "打开 Photopea 编辑",
+                content: "编辑图像（Photopea）",
                 callback: function() { imgW?.value ? showPhotopeaModal(node, imgW.value) : alert("请先选择图像"); }
+            });
+            options.push({
+                content: "编辑蒙版（Photopea）",
+                callback: function() { imgW?.value ? showPhotopeaMaskModal(node, imgW.value) : alert("请先选择图像"); }
             });
             // Open in MaskEditor - 使用正确的命令调用
             options.push({
