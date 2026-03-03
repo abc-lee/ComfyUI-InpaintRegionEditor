@@ -649,6 +649,58 @@ function onMouseUp() {
 app.registerExtension({
     name: "InpaintRegionEditor",
     
+    init() {
+        // 全局粘贴事件监听（捕获阶段，优先于系统处理）
+        document.addEventListener("paste", async (e) => {
+            // 检查是否有选中的节点
+            const selectedNodes = app.canvas.selected_nodes;
+            if (!selectedNodes || Object.keys(selectedNodes).length !== 1) return;
+            
+            const node = Object.values(selectedNodes)[0];
+            // 只处理我们的节点
+            if (node.type !== "InpaintRegionEditor") return;
+            
+            // 检查剪贴板是否有图片
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            
+            for (const item of items) {
+                if (item.type.startsWith("image/")) {
+                    // 阻止系统处理
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    
+                    const file = item.getAsFile();
+                    if (!file) continue;
+                    
+                    try {
+                        // 上传图片
+                        const fd = new FormData();
+                        fd.append("image", file, file.name || "pasted.png");
+                        fd.append("type", "input");
+                        
+                        const resp = await api.fetchApi("/upload/image", { method: "POST", body: fd });
+                        const result = await resp.json();
+                        
+                        if (result.name) {
+                            // 更新 widget
+                            const imgW = node.widgets?.find(w => w.name === "image");
+                            if (imgW) {
+                                imgW.value = result.name;
+                                if (imgW.callback) imgW.callback(result.name);
+                            }
+                            node.setDirtyCanvas(true);
+                        }
+                    } catch (err) {
+                        console.error("Paste image error:", err);
+                    }
+                    break;
+                }
+            }
+        }, true);  // 捕获阶段
+    },
+    
     async beforeRegisterNodeDef(nodeType, nodeData) {
         if (nodeData.name !== "InpaintRegionEditor") return;
         
