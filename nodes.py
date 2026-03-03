@@ -25,16 +25,23 @@ class InpaintRegionEditor:
 
     @classmethod
     def INPUT_TYPES(s):
-        files = folder_paths.get_filename_list("input")
+        input_dir = folder_paths.get_input_directory()
+        files = []
+        # 递归获取所有文件（包括子目录）
+        for root, dirs, filenames in os.walk(input_dir):
+            for f in filenames:
+                # 相对于 input 目录的路径（统一使用 / 分隔符）
+                rel_path = os.path.relpath(os.path.join(root, f), input_dir)
+                rel_path = rel_path.replace("\\", "/")  # Windows 路径修复
+                files.append(rel_path)
+        files = folder_paths.filter_files_content_types(files, ["image"])
 
         return {
             "required": {
                 "image": (sorted(files), {"image_upload": True}),
                 "padding": ("INT", {"default": 64, "min": 0, "max": 512, "step": 32}),
             },
-            "hidden": {
-                "region_coords": "STRING",
-            },
+            "hidden": {"region_coords": "STRING"},
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "INT", "INT", "INT", "INT")
@@ -48,6 +55,14 @@ class InpaintRegionEditor:
     )
     FUNCTION = "process"
     CATEGORY = "image/inpaint"
+
+    @classmethod
+    def VALIDATE_INPUTS(s, image, padding, region_coords=None):
+        # 使用文件存在性检查，而不是列表验证
+        # 这样可以支持 MaskEditor 保存后的 clipspace 文件
+        if not folder_paths.exists_annotated_filepath(image):
+            return "Invalid image file: {}".format(image)
+        return True
 
     def process(self, image, padding, region_coords=None):
         image_path = folder_paths.get_annotated_filepath(image)
