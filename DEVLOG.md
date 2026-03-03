@@ -1,5 +1,61 @@
 # InpaintRegionEditor 开发日志
 
+## 2026-03-03 选区约束 + MaskEditor 集成
+
+### 完成的工作
+
+1. **选区约束功能**
+   - 选区必须框住蒙版区域
+   - 选区不能超出图像边界
+   - padding 改变时自动调整选区位置和大小
+   - 统一 `constrainRegion()` 函数处理所有约束逻辑
+
+2. **MaskEditor 集成**
+   - 右键菜单添加 "Open in MaskEditor" 选项
+   - 使用 `app.extensionManager.command.execute("Comfy.MaskEditor.OpenMaskEditor")` 调用系统命令
+   - 解决 MaskEditor 返回后双图像问题（清除 `node.imgs`）
+   - 解决 blob URL 不被 MaskEditor 接受的问题（使用原始 ComfyUI URL）
+
+3. **UI 优化**
+   - 移除红色蒙版区域显示（真实蒙版已在图像上显示）
+   - 只保留橙色选区框
+
+### 遇到的问题
+
+1. **变量名冲突**：`beforeRegisterNodeDef(nodeType, nodeData)` 的参数 `nodeData` 覆盖了全局的 `nodeData` Map
+   - 解决：全局变量改名为 `nodeImageData`
+
+2. **`app.commands` undefined**：新版本 ComfyUI 命令系统变了
+   - 解决：使用 `app.extensionManager.command.execute()`
+
+3. **MaskEditor 不接受 blob URL**：
+   - 解决：保存原始 ComfyUI URL (`/view?filename=...&type=...`)，点击菜单时用这个 URL 创建图像
+
+4. **MaskEditor 返回后双图像**：
+   - 解决：在 `onDrawBackground` 中检测并清除 `node.imgs`
+
+### 关键代码
+
+```javascript
+// 统一的选区约束函数
+function constrainRegion(data, padding) {
+    // 1. 计算期望大小
+    // 2. 约束不超过图像大小
+    // 3. 约束不超出边界
+    // 4. 优先框住蒙版
+}
+
+// 调用 MaskEditor
+app.extensionManager.command.execute("Comfy.MaskEditor.OpenMaskEditor");
+```
+
+### 待解决问题
+
+1. 选区大小调整（目前只能拖动位置，不能调整大小）
+2. 多选区支持
+
+---
+
 ## 2026-03-02 重大进展
 
 ### 完成的工作

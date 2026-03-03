@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-03
+
+### Added
+- **选区约束**：选区必须框住蒙版且不能超出图像边界
+- **MaskEditor 集成**：右键菜单 "Open in MaskEditor" 调用系统蒙版编辑器
+- **自动约束**：padding 改变时自动调整选区位置和大小
+
+### Changed
+- **UI 简化**：移除红色蒙版区域显示（真实蒙版已在图像上可见）
+- **约束逻辑**：统一 `constrainRegion()` 函数处理所有选区约束
+
+### Fixed
+- 变量名冲突导致 `nodeData.get is not a function`
+- `app.commands` undefined → 使用 `app.extensionManager.command.execute()`
+- MaskEditor 返回后双图像问题
+
 ## [1.0.0] - 2026-03-02
 
 ### Added
