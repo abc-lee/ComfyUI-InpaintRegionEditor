@@ -25,17 +25,11 @@ class InpaintRegionEditor:
 
     @classmethod
     def INPUT_TYPES(s):
-        input_dir = folder_paths.get_input_directory()
-        files = [
-            f
-            for f in os.listdir(input_dir)
-            if os.path.isfile(os.path.join(input_dir, f))
-        ]
-        files = folder_paths.filter_files_content_types(files, ["image"])
+        files = folder_paths.get_filename_list("input")
 
         return {
             "required": {
-                "image": (sorted(files), {}),
+                "image": (sorted(files), {"image_upload": True}),
                 "padding": ("INT", {"default": 64, "min": 0, "max": 512, "step": 32}),
             },
             "hidden": {
