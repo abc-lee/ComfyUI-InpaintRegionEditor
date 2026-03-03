@@ -129,7 +129,46 @@ function closePhotopeaModal() {
 
 // ==================== 图像和选区数据 ====================
 
-const nodeData = new Map();  // 存储每个节点的图像和选区数据
+const nodeImageData = new Map();  // 存储每个节点的图像和选区数据
+
+// 约束选区：框住蒙版且不超出图像边界
+function constrainRegion(data, padding) {
+    if (!data.hasMask || !data.maskBounds) return;
+    
+    const mask = data.maskBounds;
+    
+    // 计算期望的选区大小
+    let regionWidth = mask.width + padding * 2;
+    let regionHeight = mask.height + padding * 2;
+    
+    // 约束1：选区不能超过图像大小（自动缩小）
+    regionWidth = Math.min(regionWidth, data.imageWidth);
+    regionHeight = Math.min(regionHeight, data.imageHeight);
+    
+    // 计算选区位置（优先框住蒙版，然后约束不超出边界）
+    let regionX = mask.x - padding;
+    let regionY = mask.y - padding;
+    
+    // 约束2：选区不能超出图像边界
+    // 左边界
+    if (regionX < 0) regionX = 0;
+    // 右边界
+    if (regionX + regionWidth > data.imageWidth) {
+        regionX = data.imageWidth - regionWidth;
+    }
+    // 上边界
+    if (regionY < 0) regionY = 0;
+    // 下边界
+    if (regionY + regionHeight > data.imageHeight) {
+        regionY = data.imageHeight - regionHeight;
+    }
+    
+    // 更新数据
+    data.regionX = regionX;
+    data.regionY = regionY;
+    data.regionWidth = regionWidth;
+    data.regionHeight = regionHeight;
+}
 
 // 加载图像并检测蒙版
 async function loadImageAndDetectMask(node, imageName) {
@@ -185,9 +224,11 @@ async function loadImageAndDetectMask(node, imageName) {
             
             const padding = node.widgets?.find(w => w.name === "padding")?.value ?? 64;
             
-            // 存储数据
+            // 存储数据（包含原始URL供 MaskEditor 使用）
             const data = {
                 image: img,
+                imageUrl: url,  // 保存原始 ComfyUI URL
+                imageName: filename,
                 imageWidth: img.width,
                 imageHeight: img.height,
                 hasMask: hasMask
@@ -195,13 +236,11 @@ async function loadImageAndDetectMask(node, imageName) {
             
             if (hasMask && minX <= maxX && minY <= maxY) {
                 data.maskBounds = { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
-                data.regionX = Math.max(0, minX - padding);
-                data.regionY = Math.max(0, minY - padding);
-                data.regionWidth = (maxX - minX + 1) + padding * 2;
-                data.regionHeight = (maxY - minY + 1) + padding * 2;
+                // 使用统一的约束函数计算选区
+                constrainRegion(data, padding);
             }
             
-            nodeData.set(node.id, data);
+            nodeImageData.set(node.id, data);
             node.setDirtyCanvas(true);
         };
         img.src = URL.createObjectURL(blob);
@@ -213,7 +252,7 @@ async function loadImageAndDetectMask(node, imageName) {
 // ==================== 绘制 ====================
 
 function drawNode(ctx, node) {
-    const data = nodeData.get(node.id);
+    const data = nodeImageData.get(node.id);
     
     // 如果没有加载图像，就不画
     if (!data || !data.image || !data.image.complete) return;
@@ -267,27 +306,12 @@ function drawNode(ctx, node) {
         ctx.strokeRect(rx, ry, rw, rh);
         ctx.setLineDash([]);
         
-        // 红色遮罩区域
-        const mx = imgX + data.maskBounds.x * scale;
-        const my = imgY + data.maskBounds.y * scale;
-        const mw = data.maskBounds.width * scale;
-        const mh = data.maskBounds.height * scale;
-        
-        ctx.fillStyle = "rgba(255, 0, 0, 0.4)";
-        ctx.fillRect(mx, my, mw, mh);
-        
-        // 标签
+        // 选区标签
         ctx.font = "11px sans-serif";
-        
         ctx.fillStyle = "rgba(255, 165, 0, 0.9)";
         ctx.fillRect(rx + 2, ry + 2, 70, 14);
         ctx.fillStyle = "#000";
         ctx.fillText("选区 " + data.regionWidth + "×" + data.regionHeight, rx + 4, ry + 12);
-        
-        ctx.fillStyle = "rgba(255, 0, 0, 0.9)";
-        ctx.fillRect(mx + 2, my + 2, 70, 14);
-        ctx.fillStyle = "#fff";
-        ctx.fillText("遮罩 " + data.maskBounds.width + "×" + data.maskBounds.height, mx + 4, my + 12);
     }
 }
 
@@ -296,7 +320,7 @@ function drawNode(ctx, node) {
 let dragging = null;
 
 function getImageDrawParams(node) {
-    const data = nodeData.get(node.id);
+    const data = nodeImageData.get(node.id);
     if (!data || !data.image || !data.image.complete) return null;
     
     const img = data.image;
@@ -328,7 +352,7 @@ function getImageDrawParams(node) {
 }
 
 function onMouseDown(node, pos, e) {
-    const data = nodeData.get(node.id);
+    const data = nodeImageData.get(node.id);
     if (!data || !data.hasMask) return false;
     
     const params = getImageDrawParams(node);
@@ -365,7 +389,7 @@ function onMouseDown(node, pos, e) {
 function onMouseMove(e, pos, node) {
     // 如果正在拖动
     if (dragging) {
-        const data = nodeData.get(dragging.node.id);
+        const data = nodeImageData.get(dragging.node.id);
         if (!data) return;
         
         const params = getImageDrawParams(dragging.node);
@@ -382,9 +406,38 @@ function onMouseMove(e, pos, node) {
         const dx = imgX - dragging.startImgX;
         const dy = imgY - dragging.startImgY;
         
-        // 更新选区位置
-        data.regionX = Math.max(0, Math.min(dragging.origRegionX + dx, data.imageWidth - data.regionWidth));
-        data.regionY = Math.max(0, Math.min(dragging.origRegionY + dy, data.imageHeight - data.regionHeight));
+        // 计算新位置
+        let newRegionX = dragging.origRegionX + dx;
+        let newRegionY = dragging.origRegionY + dy;
+        
+        // 约束1：选区必须包含蒙版
+        const maskLeft = data.maskBounds.x;
+        const maskTop = data.maskBounds.y;
+        const maskRight = data.maskBounds.x + data.maskBounds.width;
+        const maskBottom = data.maskBounds.y + data.maskBounds.height;
+        
+        // 约束2：选区不能超出图像边界
+        const imageRight = data.imageWidth;
+        const imageBottom = data.imageHeight;
+        
+        // 综合约束
+        // X方向：选区左边 <= 蒙版左边，选区右边 >= 蒙版右边，且选区不能超出图像
+        let minX = maskRight - data.regionWidth;  // 选区右边 >= 蒙版右边
+        let maxX = maskLeft;                       // 选区左边 <= 蒙版左边
+        
+        // 加上图像边界约束
+        minX = Math.max(0, minX);                           // 选区左边 >= 0
+        maxX = Math.min(maxX, imageRight - data.regionWidth); // 选区右边 <= 图像右边
+        
+        let minY = maskBottom - data.regionHeight;
+        let maxY = maskTop;
+        
+        minY = Math.max(0, minY);
+        maxY = Math.min(maxY, imageBottom - data.regionHeight);
+        
+        // 应用约束
+        data.regionX = Math.max(minX, Math.min(maxX, newRegionX));
+        data.regionY = Math.max(minY, Math.min(maxY, newRegionY));
         
         // 同步到 widget
         const coordsWidget = dragging.node.widgets?.find(w => w.name === "region_coords");
@@ -426,11 +479,46 @@ app.registerExtension({
                 content: "打开 Photopea 编辑",
                 callback: function() { imgW?.value ? showPhotopeaModal(node, imgW.value) : alert("请先选择图像"); }
             });
+            // Open in MaskEditor - 使用正确的命令调用
+            options.push({
+                content: "Open in MaskEditor",
+                callback: function() {
+                    if (!imgW?.value) { alert("请先选择图像"); return; }
+                    const data = nodeImageData.get(node.id);
+                    if (!data?.imageUrl) { alert("图像尚未加载完成"); return; }
+                    
+                    // 创建带有正确 URL 的图像对象供 MaskEditor 使用
+                    const maskEditorImg = new Image();
+                    maskEditorImg.src = data.imageUrl;
+                    node.imgs = [maskEditorImg];
+                    
+                    // 选中节点并执行命令
+                    app.canvas.selectNode(node);
+                    app.extensionManager.command.execute("Comfy.MaskEditor.OpenMaskEditor");
+                }
+            });
         };
         
         // 自己绘制图像和选区框
         const origDrawBg = nodeType.prototype.onDrawBackground;
         nodeType.prototype.onDrawBackground = function(ctx) {
+            const node = this;
+            
+            // 检查是否有 MaskEditor 设置的 imgs（用户刚编辑完）
+            if (node.imgs && node.imgs.length > 0) {
+                const ourData = nodeImageData.get(node.id);
+                // 如果我们有数据，说明 MaskEditor 刚关闭，需要重新加载
+                if (ourData && ourData.imageUrl) {
+                    const imgW = node.widgets?.find(w => w.name === "image");
+                    if (imgW?.value) {
+                        // 异步重新加载，避免阻塞渲染
+                        setTimeout(() => loadImageAndDetectMask(node, imgW.value), 0);
+                    }
+                }
+                // 用空数组替换，防止系统渲染（但不能用 null，会崩溃）
+                node.imgs = [];
+            }
+            
             if (origDrawBg) origDrawBg.apply(this, arguments);
             drawNode(ctx, this);
         };
@@ -458,12 +546,10 @@ app.registerExtension({
                 const origCb = padW.callback;
                 padW.callback = function(v) {
                     if (origCb) origCb.apply(this, arguments);
-                    const data = nodeData.get(node.id);
+                    const data = nodeImageData.get(node.id);
                     if (data && data.hasMask && data.maskBounds) {
-                        data.regionX = Math.max(0, data.maskBounds.x - v);
-                        data.regionY = Math.max(0, data.maskBounds.y - v);
-                        data.regionWidth = data.maskBounds.width + v * 2;
-                        data.regionHeight = data.maskBounds.height + v * 2;
+                        // 使用统一的约束函数重新计算选区
+                        constrainRegion(data, v);
                     }
                     node.setDirtyCanvas(true);
                 };
