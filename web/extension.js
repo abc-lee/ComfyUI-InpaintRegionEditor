@@ -13,9 +13,14 @@ const i18n = {
     data: null,
     loaded: false,
     
-    // 获取当前语言
+    // 获取当前语言（使用 ComfyUI API）
     getLocale() {
-        return localStorage['AGL.Locale'] || localStorage['Comfy.Settings.AGL.Locale'] || 'en-US';
+        try {
+            const locale = app.ui?.settings?.getSettingValue?.('Comfy.Locale');
+            if (locale) return locale;
+        } catch (e) {}
+        // 回退到浏览器语言
+        return navigator.language || 'en';
     },
     
     // 加载语言文件
@@ -53,7 +58,7 @@ const i18n = {
     }
 };
 
-// 快捷函数（延迟获取，确保已加载）
+// 快捷函数
 function t(key) {
     return i18n.t(key);
 }
