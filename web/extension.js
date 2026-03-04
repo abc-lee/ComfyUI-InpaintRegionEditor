@@ -1267,33 +1267,15 @@ app.registerExtension({
             if (hasPp) return;
             const node = this;
             const imgW = node.widgets?.find(w => w.name === "image");
-            options.push(null);
-            options.push({
-                content: t('menu.editImage'),
-                callback: function() { imgW?.value ? showPhotopeaModal(node, imgW.value) : alert(t('menu.selectImageFirst')); }
-            });
-            options.push({
-                content: t('menu.editMask'),
-                callback: function() { imgW?.value ? showPhotopeaMaskModal(node, imgW.value) : alert(t('menu.selectImageFirst')); }
-            });
-            // Open in MaskEditor - 使用正确的命令调用
-            options.push({
-                content: t('menu.openMaskEditor'),
-                callback: function() {
-                    if (!imgW?.value) { alert(t('menu.selectImageFirst')); return; }
-                    const data = nodeImageData.get(node.id);
-                    if (!data?.imageUrl) { alert(t('menu.imageNotLoaded')); return; }
-                    
-                    // 创建带有正确 URL 的图像对象供 MaskEditor 使用
-                    const maskEditorImg = new Image();
-                    maskEditorImg.src = data.imageUrl;
-                    node.imgs = [maskEditorImg];
-                    
-                    // 选中节点并执行命令
-                    app.canvas.selectNode(node);
-                    app.extensionManager.command.execute("Comfy.MaskEditor.OpenMaskEditor");
-                }
-            });
+             options.push(null);
+             options.push({
+                 content: t('menu.editImage'),
+                 callback: function() { imgW?.value ? showPhotopeaModal(node, imgW.value) : alert(t('menu.selectImageFirst')); }
+             });
+             options.push({
+                 content: t('menu.editMask'),
+                 callback: function() { imgW?.value ? showPhotopeaMaskModal(node, imgW.value) : alert(t('menu.selectImageFirst')); }
+             });
         };
         
         // 自己绘制图像和选区框

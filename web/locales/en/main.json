@@ -2,9 +2,7 @@
   "menu": {
     "editImage": "Edit Image (Photopea)",
     "editMask": "Edit Mask (Photopea)",
-    "openMaskEditor": "Open in MaskEditor",
-    "selectImageFirst": "Please select an image first",
-    "imageNotLoaded": "Image not loaded yet"
+    "selectImageFirst": "Please select an image first"
   },
   "photopea": {
     "editHint": "Click Save after editing",

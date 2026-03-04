@@ -2,9 +2,7 @@
   "menu": {
     "editImage": "编辑图像（Photopea）",
     "editMask": "编辑蒙版（Photopea）",
-    "openMaskEditor": "Open in MaskEditor",
-    "selectImageFirst": "请先选择图像",
-    "imageNotLoaded": "图像尚未加载完成"
+    "selectImageFirst": "请先选择图像"
   },
   "photopea": {
     "editHint": "编辑后点击保存",
