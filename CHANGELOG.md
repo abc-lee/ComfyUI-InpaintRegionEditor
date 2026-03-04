@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-03-04
+
+### Added
+- **完整文档**：中英文 README（README.md、README_CN.md）
+- **截图**：节点界面、右键菜单、蒙版效果、工作流截图
+- **示例工作流**：`workflow.json` 演示高分辨率局部重绘流程
+- **GitHub 仓库**：https://github.com/abc-lee/ComfyUI-InpaintRegionEditor
+
+### Changed
+- **术语更新**：「选区」改为「参考区」，更准确表达功能含义
+- **移除菜单项**：删除 "Open in MaskEditor" 选项（ComfyUI 原生已恢复正常）
+
+### Fixed
+- **加载新图时 region_coords 自动更新**：加载带蒙版的新图像时，widget 自动显示正确坐标
+
 ## [1.4.0] - 2026-03-03
 
 ### Added
