@@ -1,0 +1,14 @@
+[project]
+name = "comfyui-inpaint-region-editor"
+description = "A ComfyUI custom node for inpainting workflows with integrated Photopea editing and adjustable region selection."
+version = "1.4.0"
+license = { file = "LICENSE" }
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/abc-lee/ComfyUI-InpaintRegionEditor"
+
+[tool.comfy]
+PublisherId = "abc-lee"
+DisplayName = "ComfyUI Inpaint Region Editor"
+Icon = ""
