@@ -1,7 +1,7 @@
 [project]
 name = "comfyui-inpaint-region-editor"
 description = "A ComfyUI custom node for inpainting workflows with integrated Photopea editing and adjustable region selection."
-version = "1.5.0"
+version = "1.5.1"
 license = { file = "LICENSE" }
 dependencies = []
 
